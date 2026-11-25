@@ -1,0 +1,1799 @@
+<!doctype html>
+<!--
+  차계부 — 쉐보레 크루즈 1.8 전용 정비·예방정비 노트  v1.0 (1차 시제품)
+  ============================================================================
+  · 이 파일 하나로 동작합니다(외부 라이브러리·폰트·이미지 없음). 인터넷 없이도 열립니다.
+  · 저장 위치: ① 이 브라우저(localStorage) ② (선택) 본인의 비공개 구글 시트(Apps Script)
+  · 개인정보 원칙: 차량번호·소유자명·전화번호·차대번호는 코드에 넣지 않았습니다.
+      정비 날짜·주행거리·작업·금액·메모만 들어 있습니다.
+  · 공개 배포용 빌드는 `python3 build-public.py` 로 만듭니다(실데이터·정비소 이름 제거, 데모만).
+      또는 아래 EMBED_REAL_DATA 를 false 로 바꾸면 이 파일은 처음부터 데모 차량으로 시작합니다.
+  · 주소 뒤에 ?demo=1 을 붙이면 가상 차량(데모)으로 열립니다. 기본은 내 차 데이터.
+  · 구글 시트 연결: 배포한 웹 앱(.../exec) 주소를 ⚙ 설정에 넣거나 주소창 끝에 #s=<base64 주소>.
+  · 이 앱은 자동차 정비 지식이 없는 사람이 "지금 뭘 해야 하는지" 1초 안에 판단하도록 만들었습니다.
+    비용은 정비소·지역·부품 등급에 따라 달라지는 참고 범위입니다.
+-->
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F2F4F6">
+<meta name="description" content="크루즈 1.8 정비 기록과 소모품 수명, 고질병 예방정비를 한 화면에서. 14만 km 지금 무엇을 손봐야 하는지 바로 보여 줍니다.">
+<title>차계부 · 크루즈 1.8</title>
+<style>
+/* ============================================================ 디자인 토큰 */
+:root{
+  --bg:#F2F4F6; --card:#FFFFFF; --card2:#F7F8FA; --card3:#F2F4F6;
+  --ink:#191F28; --ink2:#4E5968; --sub:#8B95A1; --line:#E5E8EB; --line2:#F2F4F6;
+  --blue:#3182F6; --blue-soft:#E8F3FF; --blue-ink:#1B64DA;
+  --red:#F04452; --red-soft:#FFEEF0; --red-ink:#E02A3A;
+  --orange:#F59F00; --orange-soft:#FFF5E0; --orange-ink:#C77800;
+  --green:#03B26C; --green-soft:#E5F8F0; --green-ink:#008A52;
+  --shadow:0 2px 10px rgba(0,0,0,.03);
+  --shadow-sm:none;
+  --r:24px; --r-sm:20px; --r-xs:12px;
+  --hero1:#3182F6; --hero2:#1B64DA;
+}
+[data-theme="dark"]{
+  --bg:#101012; --card:#1C1C20; --card2:#25252A; --card3:#2A2A30;
+  --ink:#F2F4F6; --ink2:#B8C0C9; --sub:#8B95A1; --line:#2C2C34; --line2:#26262D;
+  --blue:#4B90FF; --blue-soft:#192840; --blue-ink:#82B4FF;
+  --red:#FF6B78; --red-soft:#34191D; --red-ink:#FF9AA3;
+  --orange:#FFB020; --orange-soft:#312412; --orange-ink:#FFC566;
+  --green:#2ED3AC; --green-soft:#112F27; --green-ink:#6BE6C6;
+  --shadow:0 2px 12px rgba(0,0,0,.28);
+  --shadow-sm:none;
+  --hero1:#3182F6; --hero2:#1B64DA;
+}
+*{box-sizing:border-box}
+html,body{overflow-x:clip}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Malgun Gothic","Noto Sans KR","Noto Sans CJK KR",system-ui,sans-serif;
+  font-size:15px;line-height:1.5;letter-spacing:-.01em;
+  padding-bottom:calc(86px + env(safe-area-inset-bottom));
+  -webkit-tap-highlight-color:transparent;
+}
+button,input,select,textarea{font-family:inherit;font-size:16px;color:inherit;letter-spacing:inherit}
+button{cursor:pointer;border:0;background:none;padding:0;text-align:inherit}
+h1,h2,h3,h4,p,ul{margin:0}
+ul{padding:0;list-style:none}
+h1{font-size:22px;font-weight:800;letter-spacing:-.03em}
+h2{font-size:19px;font-weight:800;letter-spacing:-.03em}
+h3{font-size:17px;font-weight:800;letter-spacing:-.02em}
+h4{font-size:14px;font-weight:800;letter-spacing:-.02em}
+.num{font-feature-settings:normal}
+.hidden{display:none!important}
+.muted{color:var(--sub)}
+.wrap{max-width:1040px;margin:0 auto;padding:0 20px}
+@media (max-width:600px){.wrap{padding:0 16px}}
+
+/* ============================================================ 상단 */
+.topbar{
+  position:sticky;top:0;z-index:40;
+  background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:saturate(1.5) blur(14px);-webkit-backdrop-filter:saturate(1.5) blur(14px);
+  border-bottom:1px solid transparent;transition:border-color .2s;
+}
+.topbar.scrolled{border-bottom-color:var(--line)}
+.tbinner{display:flex;align-items:center;gap:12px;height:62px}
+.brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:17px;letter-spacing:-.03em;flex:none}
+.brand .logo{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;background:var(--hero1);color:#fff;box-shadow:0 2px 10px rgba(27,36,50,.28)}
+.brand .logo svg{width:19px;height:19px}
+.brand small{display:block;font-size:11px;font-weight:600;color:var(--sub);letter-spacing:-.01em;margin-top:-2px}
+.pilltabs{display:flex;gap:2px;background:var(--card3);border-radius:14px;padding:4px;margin-left:8px}
+[data-theme="dark"] .pilltabs{background:var(--card2)}
+.pilltabs button{padding:8px 16px;border-radius:11px;font-size:14px;font-weight:700;color:var(--sub);transition:background .18s,color .18s,box-shadow .18s;white-space:nowrap}
+.pilltabs button.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow-sm)}
+.topright{margin-left:auto;display:flex;align-items:center;gap:4px}
+.iconbtn{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:var(--ink2);transition:background .15s,transform .12s}
+.iconbtn:hover{background:var(--card3)}
+.iconbtn:active{transform:scale(.94)}
+.iconbtn svg{width:21px;height:21px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--sub);opacity:.4;margin:0 6px;transition:.2s;flex:none}
+.dot.on{background:var(--green);opacity:1;box-shadow:0 0 0 4px var(--green-soft)}
+.dot.err{background:var(--red);opacity:1;box-shadow:0 0 0 4px var(--red-soft)}
+.dot.busy{background:var(--orange);opacity:1;animation:pulse 1.1s infinite}
+@keyframes pulse{50%{opacity:.35}}
+@media (max-width:899px){.pilltabs{display:none}.tbinner{height:56px}}
+
+/* ============================================================ 공통 */
+.view{animation:fade .22s ease}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.card{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:20px}
+.sec-head{display:flex;align-items:baseline;gap:8px;margin:26px 2px 10px}
+.sec-head h3{flex:none}
+.sec-head .cnt{font-size:13px;font-weight:700;color:var(--sub)}
+.sec-head .more{margin-left:auto;font-size:13px;font-weight:700;color:var(--blue)}
+.sec-head .desc{font-size:13px;color:var(--sub);margin-left:2px}
+.status{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 9px;border-radius:8px;font-size:11.5px;font-weight:800;letter-spacing:-.01em;white-space:nowrap}
+.status.danger{background:var(--red-soft);color:var(--red-ink)}
+.status.soon{background:var(--orange-soft);color:var(--orange-ink)}
+.status.good{background:var(--green-soft);color:var(--green-ink)}
+.status.check{background:var(--blue-soft);color:var(--blue-ink)}
+.status.none{background:var(--card3);color:var(--sub)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:48px;padding:0 20px;border-radius:14px;font-size:15px;font-weight:800;background:var(--card3);color:var(--ink);transition:transform .12s,filter .15s}
+.btn:active{transform:scale(.98)}
+.btn.primary{background:var(--blue);color:#fff;box-shadow:0 6px 16px rgba(49,130,246,.28)}
+.btn.ghost{background:transparent;color:var(--ink2);border:1px solid var(--line)}
+.btn.small{height:38px;padding:0 14px;font-size:13px;border-radius:11px}
+.btn.wide{width:100%}
+.btn svg{width:18px;height:18px}
+.copy-say{position:relative;background:var(--card2);border:1px solid var(--line2);border-radius:var(--r-sm);padding:14px 15px;font-size:14px;line-height:1.6;color:var(--ink);white-space:pre-line}
+.copy-row{display:flex;justify-content:flex-end;margin-top:8px}
+
+/* ============================================================ 내 차 히어로 (토스 순백 카드) */
+.hero{
+  position:relative;overflow:hidden;color:var(--ink);border-radius:24px;
+  background:var(--card);box-shadow:var(--shadow);padding:24px 22px 20px;
+}
+.hero-top{display:flex;align-items:center;gap:10px}
+.hero-kicker{font-size:13px;font-weight:700;color:var(--sub)}
+.hero h2{font-size:18px;color:var(--ink);margin-top:2px;letter-spacing:-.03em}
+.hero h2 .lite{font-weight:600;color:var(--sub);font-size:15px}
+.hero-subline{font-size:12.5px;font-weight:600;color:var(--sub);margin-top:2px}
+.hero-badge{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 11px;border-radius:99px;font-size:12px;font-weight:800;background:var(--red-soft);color:var(--red-ink)}
+.hero-badge.ok{background:var(--green-soft);color:var(--green-ink)}
+.hero-badge.warn{background:var(--orange-soft);color:var(--orange-ink)}
+.hero-odo{margin-top:20px}
+.odo-label{font-size:13px;font-weight:700;color:var(--sub)}
+.odo-btn{display:flex;align-items:baseline;gap:5px;margin-top:2px;color:var(--ink)}
+.odo-btn b{font-size:34px;font-weight:800;letter-spacing:-.045em;line-height:1.15}
+.odo-btn .u{font-size:17px;font-weight:700;color:var(--ink2)}
+.odo-btn svg{width:16px;height:16px;color:var(--sub);margin-left:4px;align-self:center}
+.odo-sub{font-size:12.5px;color:var(--sub);margin-top:4px}
+.tlight{display:flex;gap:14px;flex-wrap:wrap;margin-top:16px}
+.tlight span{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--ink2)}
+.tlight i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.tlight .d i{background:var(--red)}
+.tlight .s i{background:var(--orange)}
+.tlight .g i{background:var(--green)}
+.hero-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:18px;padding-top:16px;border-top:1px solid var(--line2)}
+.hero-stats div{min-width:0}
+.hero-stats span{display:block;font-size:12px;font-weight:600;color:var(--sub)}
+.hero-stats b{display:block;font-size:16px;font-weight:800;margin-top:3px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hero-stats b.bad{color:var(--red-ink)}
+.hero-stats b.warn{color:var(--orange-ink)}
+.hero-stats b.ok{color:var(--green-ink)}
+
+/* ============================================================ 알림 리스트 (토스 통합 카드) */
+.alerts{display:flex;flex-direction:column;background:var(--card);border-radius:24px;box-shadow:var(--shadow);padding:6px 0;overflow:hidden}
+.alert{
+  display:flex;gap:14px;align-items:center;width:100%;
+  background:transparent;padding:14px 20px;position:relative;
+  transition:background .15s,transform .12s;
+}
+.alert+.alert:after{content:"";position:absolute;left:74px;right:20px;top:0;height:1px;background:var(--line2)}
+.alert:hover{background:var(--card2)}
+.alert:active{transform:scale(.99)}
+.alert .ico{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-size:19px;background:var(--card3);flex:none}
+.alert.danger .ico{background:var(--red-soft)}
+.alert.soon .ico{background:var(--orange-soft)}
+.alert.check .ico{background:var(--blue-soft)}
+.alert .body{min-width:0;flex:1;overflow:hidden}
+.alert .top{display:flex;align-items:center;gap:8px}
+.alert .top b{font-size:15px;font-weight:700;letter-spacing:-.02em;flex:1;min-width:0;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.alert .top .status{margin-left:auto;flex:none}
+.alert p{font-size:13px;color:var(--sub);margin-top:2px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.alert p b{color:var(--ink2);font-weight:700}
+.alert .go{display:none}
+
+/* ============================================================ 견적/요약 */
+.plan-card{display:block;width:100%;margin-top:14px;background:var(--card);border-radius:24px;box-shadow:var(--shadow);padding:20px 22px;text-align:left;transition:transform .12s}
+.plan-card:active{transform:scale(.99)}
+.plan-card .row1{display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:700;color:var(--ink2)}
+.plan-card .row1 .tag{font-size:11.5px;font-weight:800;color:var(--blue-ink);background:var(--blue-soft);border-radius:99px;padding:3px 9px}
+.plan-card .money{font-size:23px;font-weight:800;letter-spacing:-.035em;margin-top:8px}
+.plan-card .money em{font-style:normal;font-size:13px;font-weight:600;color:var(--sub);margin-left:6px}
+.plan-card .sub{font-size:12.5px;color:var(--sub);margin-top:4px}
+.plan-card .arrow{float:right;color:var(--sub);font-size:20px;margin-top:2px}
+
+/* ============================================================ 소모품 리스트 */
+.summary-bar{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 14px}
+.summary-bar span{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:800;padding:7px 11px;border-radius:10px;background:var(--card);box-shadow:var(--shadow-sm)}
+.summary-bar i{width:7px;height:7px;border-radius:50%;display:inline-block}
+.summary-bar .d i{background:var(--red)} .summary-bar .s i{background:var(--orange)} .summary-bar .g i{background:var(--green)}
+.chiprow{display:flex;gap:6px;flex-wrap:wrap}
+.filterchip{height:34px;padding:0 13px;border-radius:10px;background:var(--card);box-shadow:var(--shadow-sm);font-size:13px;font-weight:700;color:var(--ink2);display:inline-flex;align-items:center;gap:5px}
+.filterchip.on{background:var(--ink);color:var(--bg)}
+[data-theme="dark"] .filterchip.on{background:var(--ink);color:#14161B}
+.partlist{display:grid;gap:10px;margin-top:12px}
+.part{display:block;width:100%;background:var(--card);border-radius:var(--r-sm);box-shadow:var(--shadow);padding:17px 19px;text-align:left;transition:transform .12s}
+.part:active{transform:scale(.993)}
+.part .ptop{display:flex;align-items:center;gap:9px}
+.part .pico{width:34px;height:34px;border-radius:11px;background:var(--card3);display:grid;place-items:center;font-size:17px;flex:none}
+.part .pname{font-size:14.5px;font-weight:800;letter-spacing:-.02em;min-width:0;flex:1}
+.part .pname small{display:block;font-size:11.5px;font-weight:600;color:var(--sub);margin-top:1px}
+.part .pmeta{display:flex;align-items:baseline;gap:6px;margin-top:10px;font-size:12.5px;color:var(--sub)}
+.part .pmeta b{font-size:13px;font-weight:800;color:var(--ink)}
+.bar{height:7px;border-radius:99px;background:var(--card3);margin-top:9px;overflow:hidden}
+.bar>i{display:block;height:100%;border-radius:99px;background:var(--green);transition:width .5s cubic-bezier(.22,1,.36,1)}
+.bar.soon>i{background:var(--orange)}
+.bar.danger>i{background:var(--red)}
+.bar.info>i{background:var(--blue)}
+.part .pfoot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:7px;font-size:12px;color:var(--sub)}
+.part .pfoot .hi{font-weight:800;color:var(--ink2)}
+.part .pfoot .hi.danger{color:var(--red-ink)} .part .pfoot .hi.soon{color:var(--orange-ink)} .part .pfoot .hi.good{color:var(--green-ink)} .part .pfoot .hi.check{color:var(--blue-ink)}
+.part .note{margin-top:8px;font-size:12px;color:var(--ink2);background:var(--card2);border-radius:9px;padding:8px 10px;line-height:1.45}
+.part .note b{font-weight:800;color:var(--ink)}
+
+/* ============================================================ 가이드 */
+.intro-card{background:linear-gradient(135deg,#EEF4FF,#F7FAFF);border:1px solid #DCE9FF;border-radius:var(--r);padding:18px 18px 16px}
+[data-theme="dark"] .intro-card{background:linear-gradient(135deg,#17202E,#141A24);border-color:#22324A}
+.intro-card h3{font-size:16px}
+.intro-card p{font-size:13px;color:var(--ink2);margin-top:6px;line-height:1.6}
+.intro-card .tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:10px}
+.intro-card .tags span{font-size:11.5px;font-weight:700;color:var(--blue-ink);background:#fff;border:1px solid #DCE9FF;padding:4px 8px;border-radius:8px}
+[data-theme="dark"] .intro-card .tags span{background:#1A2230;border-color:#243349;color:var(--blue-ink)}
+.guide-card{display:block;width:100%;background:var(--card);border-radius:var(--r-sm);box-shadow:var(--shadow-sm);border:1px solid var(--line2);padding:16px;text-align:left}
+.guide-card .gno{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:6px;background:var(--red-soft);color:var(--red-ink);font-size:11px;font-weight:800}
+.guide-card h4{font-size:15px;margin-top:6px;letter-spacing:-.02em}
+.guide-card p{font-size:12.5px;color:var(--ink2);margin-top:5px;line-height:1.55}
+.guide-card .hist{display:flex;flex-wrap:wrap;gap:4px;margin-top:9px}
+.guide-card .hist span{font-size:11px;font-weight:700;color:var(--ink2);background:var(--card2);border:1px solid var(--line2);padding:3px 7px;border-radius:7px}
+.guide-card .hist span.hot{background:var(--red-soft);border-color:transparent;color:var(--red-ink)}
+.checklist{display:grid;gap:8px;margin-top:12px}
+.checkitem{display:flex;gap:10px;align-items:flex-start;background:var(--card);border-radius:12px;box-shadow:var(--shadow-sm);border:1px solid var(--line2);padding:13px 14px;width:100%;text-align:left}
+.checkitem .box{width:21px;height:21px;border-radius:7px;border:1.5px solid var(--line);flex:none;display:grid;place-items:center;margin-top:1px;color:#fff;transition:.15s}
+.checkitem .box svg{width:13px;height:13px;opacity:0}
+.checkitem.done .box{background:var(--blue);border-color:var(--blue)}
+.checkitem.done .box svg{opacity:1}
+.checkitem span{font-size:13.5px;line-height:1.5}
+.checkitem.done span{color:var(--sub);text-decoration:line-through}
+
+/* ============================================================ 기록 */
+.log-sum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.log-sum div{background:var(--card);border-radius:var(--r-sm);box-shadow:var(--shadow-sm);padding:14px}
+.log-sum span{display:block;font-size:11.5px;font-weight:700;color:var(--sub)}
+.log-sum b{display:block;font-size:17px;font-weight:800;margin-top:3px;letter-spacing:-.03em}
+.bars{display:flex;align-items:flex-end;gap:10px;height:86px;margin-top:14px;padding:0 2px}
+.bars .b{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;min-width:0}
+.bars .b i{display:block;width:100%;max-width:34px;border-radius:6px 6px 3px 3px;background:var(--blue);opacity:.85}
+.bars .b em{font-size:10.5px;font-style:normal;color:var(--sub);font-weight:700}
+.segmented{display:flex;gap:3px;background:var(--card);border-radius:12px;padding:4px;box-shadow:var(--shadow-sm);width:100%}
+.segmented button{flex:1;height:38px;border-radius:9px;font-size:13.5px;font-weight:800;color:var(--sub)}
+.segmented button.on{background:var(--card3);color:var(--ink)}
+.timeline{position:relative;margin-top:6px}
+.tl-item{display:flex;gap:12px;padding-bottom:14px}
+.tl-left{width:44px;flex:none;text-align:center}
+.tl-left .yr{font-size:11px;font-weight:800;color:var(--sub)}
+.tl-left .dt{font-size:12px;font-weight:800;color:var(--ink)}
+.tl-line{width:2px;background:var(--line2);flex:none;border-radius:2px;margin:0 1px}
+.tl-body{flex:1;min-width:0;background:var(--card);border-radius:var(--r-sm);box-shadow:var(--shadow-sm);border:1px solid var(--line2);padding:13px 14px;text-align:left;width:100%}
+.tl-body .t1{display:flex;align-items:center;gap:7px}
+.tl-body .t1 b{font-size:13.5px;font-weight:800;letter-spacing:-.02em;min-width:0;flex:1}
+.tl-body .t1 em{font-style:normal;font-size:13px;font-weight:800}
+.tl-body .t2{font-size:12px;color:var(--sub);margin-top:3px}
+.tl-body .t3{font-size:12px;color:var(--ink2);margin-top:6px;line-height:1.5}
+.cat{display:inline-block;font-size:10.5px;font-weight:800;padding:2px 6px;border-radius:6px;background:var(--card3);color:var(--ink2)}
+.empty{text-align:center;padding:30px 16px;color:var(--sub);font-size:13.5px;background:var(--card);border-radius:var(--r-sm);box-shadow:var(--shadow-sm);border:1px dashed var(--line)}
+.empty b{display:block;color:var(--ink);font-size:14.5px;margin-bottom:5px}
+
+/* ============================================================ 하단 탭 */
+.tabbar{
+  position:fixed;left:0;right:0;bottom:0;z-index:45;display:none;
+  padding:8px 10px calc(8px + env(safe-area-inset-bottom));
+  background:color-mix(in srgb,var(--card) 92%,transparent);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border-top:1px solid var(--line2);
+}
+.tabbar .inner{display:flex;max-width:520px;margin:0 auto}
+.tabbar button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 0 3px;color:var(--sub);font-size:10.5px;font-weight:700;border-radius:12px}
+.tabbar button svg{width:23px;height:23px}
+.tabbar button.on{color:var(--blue-ink)}
+.tabbar button .nb{position:relative}
+.tabbar button .nb em{position:absolute;top:-3px;right:-9px;min-width:15px;height:15px;padding:0 4px;border-radius:8px;background:var(--red);color:#fff;font-size:9.5px;font-style:normal;font-weight:800;display:grid;place-items:center}
+@media (max-width:899px){.tabbar{display:block}body{padding-bottom:calc(94px + env(safe-area-inset-bottom))}}
+
+/* ============================================================ 시트/모달 */
+.scrim{position:fixed;inset:0;background:rgba(15,19,26,.48);z-index:60;opacity:0;pointer-events:none;transition:opacity .2s;backdrop-filter:blur(2px)}
+.scrim.on{opacity:1;pointer-events:auto}
+.sheet{
+  position:fixed;z-index:61;left:0;right:0;bottom:0;max-height:90vh;overflow:auto;overscroll-behavior:contain;
+  background:var(--card);border-radius:22px 22px 0 0;padding:10px 20px calc(24px + env(safe-area-inset-bottom));
+  transform:translateY(102%);transition:transform .28s cubic-bezier(.22,1,.36,1);
+  box-shadow:0 -8px 40px rgba(15,19,26,.18);
+}
+.sheet.on{transform:none}
+.sheet .handle{width:38px;height:4px;border-radius:99px;background:var(--line);margin:4px auto 14px}
+@media (min-width:900px){
+  .sheet{left:50%;right:auto;bottom:auto;top:50%;width:560px;max-height:86vh;transform:translate(-50%,-46%);opacity:0;border-radius:22px;padding:22px 24px 24px}
+  .sheet.on{transform:translate(-50%,-50%);opacity:1}
+  .sheet .handle{display:none}
+}
+.sheet h3{font-size:20px;letter-spacing:-.03em}
+.sheet .sheet-sub{font-size:13px;color:var(--sub);margin-top:4px;line-height:1.5}
+.sheet .close{position:absolute;right:14px;top:14px;width:34px;height:34px;border-radius:50%;background:var(--card3);display:grid;place-items:center;color:var(--ink2)}
+.sheet .close svg{width:17px;height:17px}
+.blocks{display:grid;gap:14px;margin-top:18px}
+.block{background:var(--card2);border-radius:var(--r-sm);padding:14px 15px}
+.block h4{margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.block h4 .e{font-size:14px}
+.block p{font-size:13.5px;color:var(--ink2);line-height:1.62}
+.block ul{display:grid;gap:4px;margin-top:2px}
+.block li{font-size:13.5px;color:var(--ink2);line-height:1.55;padding-left:14px;position:relative}
+.block li:before{content:"";position:absolute;left:2px;top:8px;width:4px;height:4px;border-radius:50%;background:var(--sub);opacity:.6}
+.kv{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.kv span{font-size:12px;font-weight:700;color:var(--ink2);background:var(--card2);border-radius:8px;padding:5px 9px}
+.kv span b{color:var(--ink);font-weight:800}
+.sheet .actions{display:flex;gap:8px;margin-top:18px}
+.sheet .actions .btn{flex:1}
+.form{display:grid;gap:12px;margin-top:16px}
+.field label{display:block;font-size:12px;font-weight:800;color:var(--ink2);margin-bottom:5px}
+.field input,.field select,.field textarea{
+  width:100%;height:48px;border:1px solid var(--line);background:var(--card2);border-radius:12px;padding:0 13px;font-size:15px;font-weight:600;
+  outline:none;transition:border-color .15s,background .15s;appearance:none;
+}
+.field textarea{height:82px;padding:12px 13px;line-height:1.5;resize:vertical;font-weight:500}
+.field input:focus,.field select,.field textarea:focus{background:var(--card)}
+.field input:focus,.field textarea:focus{border-color:var(--blue)}
+.field .hint{font-size:11.5px;color:var(--sub);margin-top:4px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:460px){.grid2{grid-template-columns:1fr}}
+.date-pick{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.date-pick button{height:32px;padding:0 11px;border-radius:9px;background:var(--card3);font-size:12.5px;font-weight:700;color:var(--ink2)}
+.pickchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+.pickchip{height:38px;padding:0 12px;border-radius:11px;background:var(--card2);border:1px solid var(--line);font-size:13px;font-weight:700;color:var(--ink2)}
+.pickchip.on{background:var(--blue-soft);border-color:var(--blue);color:var(--blue-ink)}
+.toast{position:fixed;left:50%;bottom:calc(100px + env(safe-area-inset-bottom));transform:translate(-50%,14px);z-index:80;background:rgba(25,31,40,.94);color:#fff;font-size:13.5px;font-weight:700;padding:11px 16px;border-radius:12px;opacity:0;pointer-events:none;transition:.24s;max-width:88vw;text-align:center}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+@media (min-width:900px){.toast{bottom:34px}}
+.banner{display:flex;gap:8px;align-items:center;background:var(--orange-soft);color:var(--orange-ink);border-radius:12px;padding:10px 13px;font-size:12.5px;font-weight:700;margin-bottom:12px}
+.banner b{font-weight:800}
+.note-card{background:var(--card2);border-radius:var(--r-sm);padding:14px 15px;font-size:12px;color:var(--sub);line-height:1.6;margin-top:22px}
+.note-card b{color:var(--ink2)}
+.sel{height:36px;padding:0 32px 0 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);box-shadow:var(--shadow-sm);font-size:13px;font-weight:700;color:var(--ink2);appearance:none;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238B95A1' stroke-width='2.2' stroke-linecap='round'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat:no-repeat;background-position:right 9px center;background-size:15px}
+.list-row{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line2);font-size:13px}
+.list-row:last-child{border-bottom:0}
+.list-row .d{color:var(--sub);font-weight:700;flex:none;width:70px}
+.list-row .t{flex:1;min-width:0}
+.list-row .c{font-weight:800;flex:none}
+</style>
+</head>
+<body>
+<div class="topbar" id="topbar">
+  <div class="wrap tbinner">
+    <div class="brand">
+      <span class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17h16M5.5 17V13l1.8-4.6A2 2 0 0 1 9.2 7h5.6a2 2 0 0 1 1.9 1.4L18.5 13v4"/><path d="M5.5 13h13"/><circle cx="8" cy="17" r="1.4"/><circle cx="16" cy="17" r="1.4"/></svg>
+      </span>
+      <div>차계부<small id="brandSub">크루즈 1.8 · 14만 km</small></div>
+    </div>
+    <nav class="pilltabs" id="pilltabs">
+      <button data-view="home" class="on">홈</button>
+      <button data-view="life">소모품</button>
+      <button data-view="guide">크루즈 가이드</button>
+      <button data-view="log">기록</button>
+    </nav>
+    <div class="topright">
+      <span class="dot" id="syncDot" title="구글 시트 연결 상태"></span>
+      <button class="iconbtn" id="btnAddTop" title="정비 기록하기" aria-label="정비 기록하기">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <button class="iconbtn" id="btnSettings" title="설정" aria-label="설정">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<main class="wrap">
+  <div id="demoBanner" class="banner hidden" style="margin-top:14px">
+    <span>🧪</span><div><b>데모 차량</b>으로 열려 있습니다. 실제 내 차 데이터는 <b>?demo=0</b> 또는 설정에서 불러오세요.</div>
+  </div>
+
+  <!-- ================= 홈 ================= -->
+  <section class="view" id="v-home" style="padding-top:18px">
+    <div class="hero" id="hero"></div>
+    <div id="homeAlerts"></div>
+    <div id="homeSoon"></div>
+    <div id="homeRecent"></div>
+    <div class="note-card" id="homeNote"></div>
+  </section>
+
+  <!-- ================= 소모품 ================= -->
+  <section class="view hidden" id="v-life" style="padding-top:18px">
+    <div class="sec-head" style="margin-top:4px">
+      <h3>소모품 수명</h3>
+      <span class="desc">마지막 정비 기록 · 현재 주행거리로 자동 계산</span>
+    </div>
+    <div class="summary-bar" id="lifeSummary"></div>
+    <div class="chiprow" id="lifeFilters"></div>
+    <div class="partlist" id="lifeList"></div>
+    <div class="note-card">
+      <b>게이지가 계산하는 법</b><br>
+      교환 주기(km/개월)와 마지막 교체 기록을 비교해 더 급한 쪽을 보여 줍니다. 주행거리는 <b>현재 주행거리</b> 기준이라, 계기판 숫자를 업데이트하면 남은 거리도 같이 바뀝니다.
+      제조사 취급설명서와 국내 정비소 권장 주기가 다른 항목은 <b>더 짧은 쪽(정비소 권장)</b>을 기준으로 잡았습니다. 실제 교환 시점은 차량 상태·운전 습관에 따라 달라집니다.
+    </div>
+  </section>
+
+  <!-- ================= 가이드 ================= -->
+  <section class="view hidden" id="v-guide" style="padding-top:18px">
+    <div class="intro-card" id="guideIntro"></div>
+    <div class="sec-head"><h3>대표 고질병 5가지</h3><span class="cnt">내 차 정비 이력과 함께</span></div>
+    <div id="guideList" style="display:grid;gap:10px"></div>
+    <div class="sec-head"><h3>정비소 가기 전 체크리스트</h3><span class="cnt" id="checkCnt"></span></div>
+    <div class="checklist" id="checklist"></div>
+    <div class="sec-head"><h3>정비소에서 이렇게 말하세요</h3></div>
+    <div class="card">
+      <p class="muted" style="font-size:13px">지금 상태로 정비소에 갈 때 그대로 보여 주면 되는 문장입니다. 차량 정보는 자동으로 채웁니다.</p>
+      <div class="copy-say" id="scriptText" style="margin-top:10px"></div>
+      <div class="copy-row">
+        <button class="btn small primary" id="copyScript">문구 복사</button>
+      </div>
+    </div>
+    <div class="note-card">
+      <b>이 가이드의 근거</b><br>
+      크루즈 1.8(F18D4) 정비 사례·쉐보레 소모품 교환주기·국내 정비소 권장 주기를 종합했습니다. 비용은 정비소·지역·부품 등급(순정/동급/재생)에 따라 크게 달라지는 <b>참고 범위</b>입니다. 정확한 견적은 차량 상태를 본 뒤 정비소에서 받으세요.
+    </div>
+  </section>
+
+  <!-- ================= 기록 ================= -->
+  <section class="view hidden" id="v-log" style="padding-top:18px">
+    <div class="segmented" id="logSeg">
+      <button data-seg="maint" class="on">정비 기록</button>
+      <button data-seg="fuel">주유 기록</button>
+    </div>
+    <div id="logMaint">
+      <div class="sec-head" style="margin-top:18px"><h3>지출 요약</h3></div>
+      <div class="log-sum" id="logSum"></div>
+      <div class="card" style="margin-top:10px;padding:16px 18px 18px">
+        <div style="display:flex;align-items:baseline;gap:8px">
+          <h4>연도별 정비비</h4>
+          <span class="muted" style="font-size:12px;margin-left:auto">사고·보험 수리 포함</span>
+        </div>
+        <div class="bars" id="yearBars"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn primary wide" data-add="maint">+ 정비 기록하기</button>
+        <button class="btn ghost wide" data-add="fuel">+ 주유 기록</button>
+      </div>
+      <div class="sec-head"><h3>타임라인</h3><span class="cnt" id="logCnt"></span></div>
+      <div class="chiprow" id="logFilters"></div>
+      <div class="timeline" id="timeline"></div>
+    </div>
+    <div id="logFuel" class="hidden">
+      <div class="sec-head" style="margin-top:18px"><h3>주유비 통계</h3></div>
+      <div id="fuelSum"></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn primary wide" data-add="fuel">+ 주유비 기록하기</button>
+      </div>
+      <div class="sec-head"><h3>주유 내역</h3></div>
+      <div id="fuelList"></div>
+      <div class="note-card">
+        <b>주유비 관리</b><br>
+        날짜와 금액, 주유소만 넣으면 월별 주유비 지출이 자동으로 집계됩니다. 카드 내역이나 영수증 캡처를 보내주시면 제가 바로 넣어드릴 수도 있어요.
+      </div>
+    </div>
+  </section>
+</main>
+
+<nav class="tabbar" id="tabbar">
+  <div class="inner">
+    <button data-view="home" class="on">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5h4v5"/></svg>
+      <span>홈</span>
+    </button>
+    <button data-view="life">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17l4-6"/><circle cx="12" cy="17" r="1.3"/></svg>
+      <span>소모품</span>
+    </button>
+    <button data-view="guide">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5h11a2 2 0 0 1 2 2V20H7a2 2 0 0 1-2-2Z"/><path d="M8 8h7M8 12h7"/></svg>
+      <span>가이드</span>
+    </button>
+    <button data-view="log">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>
+      <span class="nb">기록<em id="logBadge" class="hidden"></em></span>
+    </button>
+  </div>
+</nav>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="상세">
+  <div class="handle"></div>
+  <button class="close" id="sheetClose" aria-label="닫기">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  </button>
+  <div id="sheetBody"></div>
+</div>
+<div class="toast" id="toast"></div>
+<input type="file" id="importFile" accept="application/json,.json" class="hidden">
+
+<script>
+/* ============================================================================
+   1) 데이터 — 소모품 기준 / 크루즈 가이드 / 정비 이력 프리셋
+   ----------------------------------------------------------------------------
+   · 개인정보(차량번호·소유자명·전화번호·차대번호)는 이 파일 어디에도 없습니다.
+   · 정비 이력은 「날짜 · 주행거리 · 정비소 · 작업 · 금액 · 메모」만 담았고,
+     나중에 비공개 구글 시트로 그대로 옮길 수 있게 JSON 구조로 분리했습니다.
+   · 공개 배포용으로는 build-public.py 가 EMBED_REAL_DATA 를 false 로 바꾸고
+     정비소 이름까지 지운 사본을 만듭니다.
+============================================================================ */
+const APP_VERSION = '1.0.0';
+const EMBED_REAL_DATA = false;          // ← 공개 배포 시 false (또는 build-public.py 사용)
+const STORE_KEY = 'carcare.cruze.v1';
+
+/* ---------------------------------------------------------------- 소모품 14종 */
+/*  km: 교환 주행거리(km) · months: 교환 주기(개월) · low/high: 참고 견적(원)
+    rank: 홈 '지금 할 일'에 띄울 순서(작을수록 위) · checkOnly: 기록이 없으면 '확인 필요'로 표시 */
+const ITEMS = [
+  {
+    key:'engine_oil', name:'엔진오일 · 오일필터', sub:'엔진', emoji:'🛢️', km:10000, months:12,
+    low:60000, high:100000, costText:'6~10만원', cat:'엔진', rank:8,
+    why:'엔진 금속면이 직접 맞닿지 않게 미끄럼을 만들고, 열과 금속 찌꺼기를 씻어내는 역할입니다. 크루즈 1.8은 약 4.5L가 들어갑니다.',
+    symptoms:['오일이 검고 묽어짐 (뽑아보면 물처럼 흐름)','엔진 소리·진동이 커짐','연비가 눈에 띄게 떨어짐'],
+    say:'엔진오일과 오일필터 교환해 주세요. 5W-30, API SP/GF-6 규격으로 부탁드립니다.',
+    tip:'오일을 갈 때 하부 누유와 오일팬 상태도 같이 봐 달라고 하세요.',
+    myTip:'2026.04 점검에서 미세 누유 소견이 있었으니, 오일 교환할 때 하부 누유를 꼭 같이 확인하세요.',
+    alertTitle:'엔진오일 교환 시기', alertBody:'마지막 교환 후 <b>1만km</b> 또는 <b>1년</b>이 지나면 교환하세요.'
+  },
+  {
+    key:'air_filter', name:'에어클리너 (엔진 공기필터)', sub:'흡기', emoji:'💨', km:30000, months:24, checkOnly:true,
+    low:20000, high:40000, costText:'2~4만원', cat:'엔진', rank:null,
+    why:'엔진으로 들어가는 공기 속 먼지를 거릅니다. 막히면 엔진이 숨이 막혀 힘과 연비가 같이 떨어집니다.',
+    symptoms:['가속이 답답하고 힘이 없음','연비 저하','공회전이 불안정'],
+    say:'에어클리너 필터 상태 보고, 더러우면 교환해 주세요.',
+    tip:'오일 교환할 때 같이 보는 것이 가장 간편합니다. 3~4만km마다 교환.',
+    alertTitle:'에어클리너 점검 시기', alertBody:'3만km마다 교환하면 흡기 효율이 유지됩니다.'
+  },
+  {
+    key:'cabin_filter', name:'에어컨필터 (실내필터)', sub:'실내', emoji:'❄️', km:10000, months:6, checkOnly:true,
+    low:20000, high:40000, costText:'2~4만원', cat:'실내', rank:null,
+    why:'실내로 들어오는 미세먼지·꽃가루·배기가스를 거릅니다. 여름철 냄새와 김서림의 주범이기도 합니다.',
+    symptoms:['에어컨·히터에서 냄새','유리 김서림이 잘 안 걷힘','바람이 약해짐'],
+    say:'에어컨필터(실내필터) 교환해 주세요. 활성탄 필터로 부탁드립니다.',
+    tip:'6개월~1만km마다. 셀프 교환이 가장 쉬운 부품이라 직접 해도 됩니다.',
+    alertTitle:'에어컨필터 교환 시기', alertBody:'6개월마다 교환하면 실내 공기가 깨끗합니다.'
+  },
+  {
+    key:'timing_belt', name:'타이밍벨트 세트', sub:'벨트 + 텐셔너 + 아이들 + 워터펌프 + 외벨트', emoji:'⚙️', km:100000, months:120,
+    low:300000, high:550000, costText:'30~55만원', cat:'엔진', rank:1,
+    why:'크루즈 1.8(F18D4)은 타이밍 체인이 아니라 <b>고무 타이밍벨트</b>로 엔진 밸브 시점을 맞춥니다. 벨트가 끊어지면 피스톤이 밸브를 치어 엔진을 통째로 열어야 합니다. 세트는 벨트·텐셔너·아이들·워터펌프·외벨트·부동액을 함께 교환하는 것입니다.',
+    symptoms:['대부분 무증상 — 커버 안에 있어 밖에서 점검이 안 됩니다','간헐적으로 엔진 앞쪽에서 ‘찌직찌직’ 마찰음','워터펌프 쪽 냉각수 감소·하부 얼룩'],
+    say:'타이밍벨트 세트(텐셔너·아이들·워터펌프·외벨트 포함) 교환 견적 주세요. 프런트 크랭크 씰 누유와 워터펌프 누수도 같이 확인해 주세요.',
+    tip:'취급설명서는 10년·16만km, 국내 정비소 권장은 10~12만km입니다. 이 앱은 더 짧은 10만km를 기준으로 잡았습니다. 벨트만 갈지 말고 워터펌프·텐셔너·외벨트·부동액까지 세트로 견적을 받는 것이 일반적입니다.',
+    alertTitle:'타이밍벨트 세트 — 교체 이력이 없어요',
+    alertBody:function(g){ return '신차(' + S.vehicle.year + '년) 이후 교체 기록이 없습니다. 벨트가 끊어지면 엔진 수리 <b>100만원 이상</b>. 예방정비 1순위입니다.'; }
+  },
+  {
+    key:'atf', name:'오토미션 오일', sub:'6단 자동변속기', emoji:'🔁', km:60000, months:60,
+    low:200000, high:350000, costText:'20~35만원 (드레인 2회)', cat:'구동', rank:3,
+    why:'6단 자동변속기 내부의 마찰과 열을 담당합니다. 오염되면 변속 충격·슬립이 생기고, 변속기를 통째로 교체하면 150만원을 넘습니다.',
+    symptoms:['출발·정지할 때 울컥하는 충격','가속할 때 회전수만 오르고 속도가 늦게 붙음(슬립)','고속 주행 후 변속이 늦어짐'],
+    say:'미션오일 상태 봐 주세요. 오래 안 갈아서 드레인으로 나눠 2회 교환하고 싶습니다. 오일팬 자석과 슬러지도 확인해 주세요.',
+    tip:'10만km 넘게 방치된 미션에 순환식으로 한 번에 갈면 오히려 충격이 생길 수 있습니다. 드레인 2회가 안전합니다.',
+    alertTitle:function(g){ return '오토미션 오일 — ' + (noteWith('변속기 오일') ? '오염 소견' : '교체 시기'); },
+    alertBody:function(g){
+      var head = g.last ? ('마지막 교환 뒤 <b>' + (g.kmUsed ? fmtKm(g.kmUsed) + 'km' : fmtMonths(g.monthsUsed)) + '</b> 지났습니다.') : '교체 기록이 없습니다.';
+      return head + (noteWith('변속기 오일') ? ' 종합검사에서 <b>변속기 오일 오염</b> 소견을 받았습니다.' : '') + ' 6단 미션이 상하면 수리비가 150만원을 넘어요.';
+    }
+  },
+  {
+    key:'brake_fluid', name:'브레이크액', sub:'제동', emoji:'🛑', km:40000, months:24,
+    low:60000, high:100000, costText:'6~10만원', cat:'제동', rank:4,
+    why:'브레이크액은 공기 중 수분을 빨아들입니다. 수분이 많아지면 끓는점이 낮아져 급제동·내리막에서 페달이 푹 들어가는 <b>베이퍼록</b>이 생길 수 있고, ABS·브레이크 라인이 삭습니다.',
+    symptoms:['페달이 스펀지처럼 물렁함','제동거리가 길어짐','브레이크 경고등'],
+    say:'브레이크액 교환해 주세요. DOT-4로 넣고, 라인 에어 빼기까지 해 주세요.',
+    tip:'2년 또는 4만km마다. 브레이크 패드 교환할 때 같이 하면 공임이 절약됩니다.',
+    alertTitle:function(g){ return '브레이크액 — ' + (g.last ? fmtMonths(g.monthsUsed) + ' 경과' : '교체 기록 없음'); },
+    alertBody:function(g){
+      return (g.last ? ('교환 뒤 <b>' + fmtMonths(g.monthsUsed) + '</b>이 지났습니다') : '교체 기록이 없습니다') + '(권장 2년). 수분을 머금어 급제동 때 제동력이 떨어질 수 있어요.';
+    }
+  },
+  {
+    key:'coolant', name:'부동액 · 냉각수', sub:'냉각계통', emoji:'🌡️', km:100000, months:60,
+    low:80000, high:150000, costText:'8~15만원', cat:'냉각', rank:2,
+    why:'엔진 열을 식히고 겨울철 동결을 막습니다. 부동액은 시간이 지나면 방청 성분이 죽어 라디에이터·워터펌프·히터코어를 안쪽부터 삭게 합니다.',
+    symptoms:['냉각수가 자꾸 줄어듦','수온 게이지가 올라감','히터가 약해짐','하부에 초록/분홍색 얼룩, 달걀 썩는 냄새'],
+    say:'냉각수(부동액) 교환하고, 냉각계통 압력 테스트도 같이 해 주세요.',
+    tip:'제조사 표는 5년·24만km, 국내 정비소는 10만km 권장이라 짧은 쪽을 기준으로 잡았습니다. 보충만 하지 말고 누수 지점을 먼저 찾는 것이 중요합니다.',
+    myTip:'2022.11 오일쿨러·써모스탯 하우징을 수리했는데 2026.04에 다시 미세 누유 소견이 있었습니다. 이번에는 압력 테스트로 지점을 확실히 잡으세요.',
+    alertTitle:function(g){ return '냉각수 — ' + (noteWith('누유') ? '누유 추적 · ' : '') + (g.last ? fmtMonths(g.monthsUsed) + ' 경과' : '교체 기록 없음'); },
+    alertBody:function(g){
+      return (noteWith('누유') ? '점검에서 <b>냉각수·엔진오일 미세 누유 의심</b> 소견이 있었습니다. ' : '') +
+        (g.last ? ('부동액도 교환 뒤 <b>' + fmtMonths(g.monthsUsed) + '</b> 지났습니다.') : '부동액 교체 기록이 없습니다.') +
+        ' 보충으로 버티지 말고 누수 지점을 찾아야 합니다.';
+    }
+  },
+  {
+    key:'spark_plug', name:'점화플러그 4개', sub:'점화', emoji:'⚡', km:60000, months:96,
+    low:80000, high:150000, costText:'8~15만원', cat:'점화', rank:null,
+    why:'플러그 불꽃으로 연료를 태웁니다. 전극이 닳으면 불꽃이 약해져 실화·진동·연비 저하가 생깁니다.',
+    symptoms:['시동이 늦게 걸림','공회전 때 떨림','가속 시 힘 빠짐, 엔진 경고등'],
+    say:'점화플러그 4개 교환해 주세요. 교환할 때 플러그홀에 오일이 고여 있는지도 봐 주세요.',
+    tip:'6만km마다 교환하고, 교환할 때 플러그홀 오일 오염도 같이 확인하세요.',
+    myTip:'2020.10에 4개 교환했습니다. 그 뒤 4만km 정도라 아직 여유가 있지만, 로커암 커버 누유가 재발하면 플러그가 먼저 상합니다.',
+    alertTitle:'점화플러그 교환 시기', alertBody:'6만km마다. 플러그홀 오일 오염도 같이 확인하세요.'
+  },
+  {
+    key:'ignition_coil', name:'이그니션 코일', sub:'점화', emoji:'🔌', km:100000, months:96, checkOnly:true,
+    low:70000, high:120000, costText:'7~12만원 (1개)', cat:'점화', rank:null,
+    why:'플러그에 고전압을 보냅니다. 크루즈 1.8은 로커암 커버 누유로 플러그홀에 오일이 고이면 코일이 상해 실화가 잦습니다.',
+    symptoms:['특정 실린더 실화(P0301~P0304)','심한 떨림과 출력 저하','엔진 경고등 점멸'],
+    say:'실화 코드 확인하고, 코일과 플러그홀 오염, 로커암 커버 누유를 같이 봐 주세요.',
+    tip:'코일 하나가 죽으면 같은 위치가 반복될 수 있어 원인(누유)을 먼저 잡는 게 중요합니다.',
+    myTip:'2017·2020년에 교체했습니다. 누유가 재발하면 같은 코일이 또 상할 수 있습니다.',
+    alertTitle:'이그니션 코일 점검', alertBody:'플러그홀 오일 오염이 있으면 코일이 상합니다.'
+  },
+  {
+    key:'brake_pad_front', name:'앞 브레이크 패드', sub:'제동', emoji:'🛞', km:40000, months:48,
+    low:80000, high:150000, costText:'8~15만원', cat:'제동', rank:6,
+    why:'차 무게가 앞으로 쏠려 앞 패드가 뒤보다 약 2배 빨리 닳습니다.',
+    symptoms:['제동할 때 ‘끽’ 소리','페달이 깊게 들어감','브레이크 경고등, 디스크 긁힘'],
+    say:'앞 브레이크 패드 마모 상태 봐 주세요. 3mm 이하면 패드와 디스크 상태까지 견적 주세요.',
+    tip:'3mm 이하면 교체하고, 디스크 두께와 휠 실린더 누유도 함께 확인하세요.',
+    myTip:'2024.12 종합검사에서 마모 25%로 양호 판정을 받았습니다. 다음 오일 교환 때 눈으로 한 번 더 확인하세요.',
+    alertTitle:'앞 브레이크 패드 점검', alertBody:'2020.08 교체. 2024.12 검사에서 마모 25%로 양호였습니다.'
+  },
+  {
+    key:'brake_pad_rear', name:'뒤 브레이크 패드', sub:'제동', emoji:'🛞', km:60000, months:60,
+    low:70000, high:130000, costText:'7~13만원', cat:'제동', rank:7,
+    why:'앞바퀴보다 덜 닳지만, 방치하면 디스크를 긁어 수리비가 커집니다.',
+    symptoms:['뒤에서 나는 금속성 소리','주차브레이크 성능 저하'],
+    say:'뒤 브레이크 패드와 주차브레이크 상태도 같이 봐 주세요.',
+    tip:'앞바퀴보다 덜 닳지만, 방치하면 디스크를 긁어 수리비가 커집니다.',
+    myTip:'교체 기록이 없지만 2024.12 검사에서 패드 마모 25%로 양호 판정. 다음 정비 때 확인하면 됩니다.',
+    alertTitle:'뒤 브레이크 패드 점검', alertBody:'교체 기록은 없지만 2024.12 검사에서 양호 판정을 받았습니다.'
+  },
+  {
+    key:'tire', name:'타이어 4본', sub:'205/60R16', emoji:'⭕', km:50000, months:60,
+    low:450000, high:700000, costText:'45~70만원 (4본)', cat:'구동', rank:null,
+    why:'타이어는 유일하게 노면과 닿는 부품입니다. 마모 1.6mm 이하면 불법이고, 3mm 이하면 젖은 노면 제동거리가 크게 늘어납니다. 6년이 넘으면 갈라짐도 생깁니다.',
+    symptoms:['젖은 노면에서 미끄러짐','주행 소음·진동 증가','옆면 갈라짐, 공기압이 자주 빠짐'],
+    say:'타이어 마모와 제조 연식(DOT) 확인해 주세요. 4본 견적과 휠얼라인먼트 필요 여부도 알려 주세요.',
+    tip:'마모 3mm와 제조 연식 6년을 기준으로 보고, 4본을 함께 교환하세요.',
+    myTip:'2024.02에 4본 교체(약 12만km). 2024.12 검사 때 홈 8mm로 새것에 가까웠습니다.',
+    alertTitle:'타이어 점검', alertBody:'2024.02 4본 교체. 마모 3mm 이하면 교체하세요.'
+  },
+  {
+    key:'battery', name:'배터리', sub:'전장', emoji:'🔋', km:48000, months:48, checkOnly:true,
+    low:100000, high:160000, costText:'10~16만원', cat:'전기', rank:5,
+    why:'시동·전장 장치에 전기를 공급합니다. 수명이 다하면 겨울 아침에 가장 먼저 방전됩니다.',
+    symptoms:['시동이 힘겹게 걸림','실내등·헤드램프가 어두움','주행 중 재시동 반복, 배터리 경고등'],
+    say:'배터리 상태(CCA) 측정해 주세요. 4년이 넘었으면 교환 견적도 주세요.',
+    tip:'4년이 넘으면 CCA(시동전류) 측정을 받아 보세요. 교체했다면 기록에 남겨 주세요.',
+    myTip:'2022.08 교체 이후 약 4년 3개월 차이며, 2026.04 내차점검에서는 양호 판정을 받았습니다. 다만 4년이 지났으니 겨울 전 전압(CCA) 점검만 가볍게 받아 보세요.',
+    alertTitle:'배터리 — 겨울 전 전압 점검',
+    alertBody:function(g){
+      return '마지막 기록이 <b>' + fmtDate(g.last ? g.last.date : (S.vehicle.regDate + '-01')) + '</b>입니다. 그 뒤 교체하셨다면 기록이 없을 뿐이고, 아니라면 <b>' + fmtMonths(g.monthsUsed) + '</b> 된 배터리라 겨울 방전 위험이 큽니다.';
+    }
+  },
+  {
+    key:'drive_belt', name:'와이퍼 · 구동벨트', sub:'외벨트(팬벨트) · 와이퍼 블레이드', emoji:'🪟', km:60000, months:60, followUp:'timing_belt',
+    low:70000, high:140000, costText:'구동벨트 5~10만 · 와이퍼 2~4만', cat:'구동', rank:null,
+    alt:{ key:'wiper', name:'와이퍼 블레이드', km:null, months:12, costText:'2~4만원', checkOnly:true },
+    why:'구동벨트는 발전기·에어컨·워터펌프를 돌립니다. 끊어지면 시동 직후 배터리 방전과 냉각수 순환 정지로 이어집니다. 와이퍼는 비 오는 날 시야를 지키는 안전 부품입니다.',
+    symptoms:['시동 직후 ‘끼익’ 벨트 소리','배터리 경고등, 냉각수 온도 상승','와이퍼가 유리에 줄을 남기거나 덜 닦임'],
+    say:'구동벨트 상태와 텐셔너 소리 봐 주세요. 와이퍼 블레이드도 같이 교환해 주세요.',
+    tip:'구동벨트는 타이밍벨트 세트 작업 때 함께 교환하는 것이 일반적입니다. 와이퍼는 1년마다.',
+    alertTitle:'구동벨트 점검', alertBody:'타이밍벨트 세트 작업 때 함께 교환하세요.'
+  }
+];
+
+const ITEM_BY_KEY = {};
+ITEMS.forEach(function(it){ ITEM_BY_KEY[it.key] = it; });
+
+/* ---------------------------------------------------------------- 크루즈 1.8 고질병 */
+const GUIDE = [
+  {
+    no:1, key:'oilcooler',
+    title:'엔진 오일쿨러 · 파이프 씰 누유/누수',
+    short:'엔진오일과 냉각수가 만나는 부품입니다. 여기 씰이 상하면 냉각수에 오일이 섞이거나 오일이 새고, 라디에이터·히터코어가 막혀 과열로 이어집니다.',
+    history:[{date:'2022.11', text:'오일쿨러 아웃렛 파이프·씰 교환'},{date:'2026.04', text:'냉각수·엔진오일 미세 누유 의심', hot:true}],
+    risk:'냉각수에 기름이 섞이면(탁한 갈색, 카푸치노처럼 거품) 라디에이터와 히터코어가 막혀 냉각 성능이 떨어지고, 방치하면 헤드 개스킷까지 갑니다.',
+    symptoms:['냉각수 리저버에 기름막이 떠 있음','엔진오일 레벨이 조금씩 줄어듦','주차 자리 하부에 갈색·검은 얼룩','히터가 약해지고 수온이 오름'],
+    actions:['냉각수 리저버 뚜껑을 열어 기름막·거품이 있는지 확인','정비소에서 냉각계통 압력 테스트 + 오일쿨러 어셈블리 견적','냉각수 오염 시 플러싱까지 포함해 견적 받기'],
+    cost:'25~60만원 (파이프·씰만 / 어셈블리 교체)',
+    say:'냉각수에 기름이 섞였는지 확인해 주시고, 오일쿨러 파이프·씰 누유 견적 주세요. 압력 테스트도 부탁드립니다.'
+  },
+  {
+    no:2, key:'coolingsys',
+    title:'써모스탯 하우징 · 라디에이터 서지탱크 냉각수 누수',
+    short:'크루즈 1.8에서 가장 자주 새는 곳입니다. 플라스틱 하우징과 서지탱크(보조통)가 열을 반복해서 받으면 갈라지고, 냉각수가 천천히 줄어듭니다.',
+    history:[{date:'2019.11', text:'서지탱크 + 부동액 교환'},{date:'2020.08', text:'써모스탯 + 라디에이터 호스'},{date:'2022.11', text:'써모스탯 하우징 + 히터/라디에이터 호스', hot:true}],
+    risk:'냉각수가 줄면 수온이 급격히 올라 엔진이 손상됩니다. ‘조금씩 줄어드는’ 상태를 보충으로 버티다가 고속도로에서 과열되는 사례가 많습니다.',
+    symptoms:['냉각수가 일주일에 눈에 띄게 줄어듦','수온 게이지가 평소보다 높음','히터가 약해짐','하부에 분홍/초록색 냉각수 자국'],
+    actions:['주차한 자리 바닥을 매일 확인','정비소에서 냉각계통 압력 테스트(부위별 누수 확인)','호스·클램프까지 함께 점검 요청'],
+    cost:'15~30만원 (하우징/서지탱크 교환)',
+    say:'냉각수가 자꾸 줄어서 왔습니다. 압력 테스트로 누수 지점 찾아 주시고, 써모스탯 하우징·서지탱크·호스 상태까지 봐 주세요.'
+  },
+  {
+    no:3, key:'rockercov',
+    title:'캠샤프트(로커암) 커버 오일 누유',
+    short:'엔진 위쪽 커버 가스켓이 굳어 오일이 스며 나옵니다. 오일이 점화플러그 홀에 고이면 플러그와 이그니션 코일이 상해 실화(떨림)가 생깁니다.',
+    history:[{date:'2020.10', text:'로커암 커버 + 이그니션 코일 + 플러그 4개', hot:true}],
+    risk:'처음엔 냄새·기름때 수준이지만, 코일이 상하면 주행 중 떨림과 출력 저하가 옵니다. 코일·플러그를 계속 갈아도 누유를 안 잡으면 반복됩니다.',
+    symptoms:['엔진 상부 기름때, 탄 냄새','공회전 떨림, 엔진 경고등(P030x)','플러그를 빼면 오일이 묻어 있음'],
+    actions:['커버 가스켓 + 플러그홀 씰 세트로 교환','코일·플러그 오염 상태 동시 확인','교환 후 엔진룸 세척해 재누유 확인'],
+    cost:'15~30만원 (가스켓 + 공임, 코일 별도)',
+    say:'엔진 위쪽 오일 누유와 플러그홀 오염 확인해 주세요. 로커암 커버 가스켓 교환 견적 부탁드립니다.'
+  },
+  {
+    no:4, key:'at6',
+    title:'6단 자동변속기 과열 · 오일 산화',
+    short:'도심 정체와 짧은 주행이 많은 국내 조건에서 미션오일이 빨리 상합니다. 오염된 오일은 변속 충격과 슬립을 만들고, 방치하면 변속기 자체를 교체해야 합니다.',
+    history:[{date:'2018.04', text:'오토미션 오일 + 쿨러 호스'},{date:'2024.12', text:'종합검사: 변속기 오일 오염 소견', hot:true}],
+    risk:'변속기 교체는 150만원 이상. 오일 교환(20~35만원)을 미루다가 겪는 가장 비싼 실수입니다.',
+    symptoms:['출발·정지 시 울컥하는 충격','가속 시 회전수만 오르는 슬립','오르막에서 변속이 늦음','미션 쪽 기름 자국'],
+    actions:['드레인 방식으로 2회 나눠 교환 (10만km 이상 방치 시 순환식 금지)','오일팬 자석의 금속 가루·슬러지 확인','미션 쿨러 라인 누유 확인'],
+    cost:'20~35만원 (드레인 2회)',
+    say:'미션오일이 오염됐다는 검사 소견이 있었습니다. 드레인으로 2회 나눠 교환하고 오일팬 슬러지 상태도 봐 주세요.'
+  },
+  {
+    no:5, key:'timingbelt',
+    title:'타이밍벨트 · 워터펌프 · 프런트케이스 누수',
+    short:'크루즈 1.8은 고무 타이밍벨트입니다. 14년·14만km 동안 교체 기록이 없어 가장 위험한 상태입니다. 워터펌프와 프런트 크랭크 씰 누수도 같은 작업에서 확인해야 합니다.',
+    history:[{date:'2012~', text:'교체 기록 없음', hot:true},{date:'2026.04', text:'미세 누유 의심(엔진오일)'}],
+    risk:'벨트가 끊어지면 밸브와 피스톤이 부딪혀 엔진을 열어야 합니다(100만원 이상). 견인까지 더해지고, 수리 후에도 차값을 넘는 경우가 있습니다.',
+    symptoms:['대부분 무증상 (커버 안이라 점검 불가)','간헐적 마찰음','워터펌프 쪽 냉각수 감소'],
+    actions:['벨트 단품이 아니라 ‘세트’로 견적 (벨트+텐셔너+아이들+워터펌프+외벨트+부동액)','프런트 크랭크 씰·오일팬 누유 동시 확인','작업 후 냉각수 압력 테스트와 시운전'],
+    cost:'30~55만원 (순정 부품 세트 + 공임)',
+    say:'타이밍벨트 세트(텐셔너·아이들·워터펌프·외벨트 포함)와 부동액 교환 견적 주세요. 프런트 크랭크 씰 누유도 확인 부탁드립니다.'
+  }
+];
+
+/* ---------------------------------------------------------------- 체크리스트 */
+const CHECKLIST = [
+  '타이밍벨트는 ‘벨트만’이 아니라 세트(텐셔너·아이들·워터펌프·외벨트·부동액)로 견적 받기',
+  '냉각수 누유는 부품 교체 전에 ‘압력 테스트’부터 요청하기',
+  '미션오일은 드레인 2회 — 10만km 이상 방치된 차에 순환식은 피하기',
+  '브레이크 패드 3mm 이하면 교체, 디스크 두께·휠 실린더 누유도 확인',
+  '견적서에 부품명·수량·공임을 나눠 적어 달라고 하기 (재생/순정 표시)',
+  '부품 보증(보통 1년/2만km)과 작업 후 재점검 조건 확인하기',
+  '작업 후 시운전하고 누유·소음 재확인, 다음 교환 km를 메모해 차계부에 기록',
+  '사고·보험 수리는 자차/대물 처리 여부와 면책금을 기록해 두기'
+];
+
+/* ---------------------------------------------------------------- 내 차 프리셋 (실데이터) */
+/* 공개 빌드: 내 차 실데이터 제거됨 (데모 데이터만 포함) */
+
+/* ---------------------------------------------------------------- 데모(가상) 프리셋 */
+const DEMO_PRESET = {
+  mode:'demo',
+  vehicle:{
+    model:'크루즈 1.8 DOHC LT+', short:'크루즈 1.8', trim:'LT+', year:2013, regDate:'2013-04',
+    fuel:'가솔린', engine:'F18D4 1.8L', trans:'6단 자동', tireSize:'205/60R16',
+    odometer:98400, odometerAsOf:'2026-11-25', inspectionDue:'2027-03-14', annualKm:11000
+  },
+  notes:[{ id:'d1', date:'2026-09-18', key:'check', title:'데모: 하부 점검 메모', body:'데모 데이터입니다. 실제 차량 정보가 아닙니다.' }],
+  records:[
+    { id:'d01', date:'2021-05-10', odo:62000, shop:'데모 정비소', cat:'소모품', cost:88000,
+      title:'엔진오일 · 에어클리너', work:['엔진오일·오일필터','에어클리너'], parts:['engine_oil','air_filter'], memo:'데모 기록' },
+    { id:'d02', date:'2022-03-21', odo:71200, shop:'데모 정비소', cat:'제동', cost:135000,
+      title:'앞 브레이크 패드', work:['앞 브레이크 패드'], parts:['brake_pad_front'], memo:'' },
+    { id:'d03', date:'2022-09-02', odo:76000, shop:'데모 정비소', cat:'냉각계통', cost:96000,
+      title:'부동액 교환', work:['부동액 교환','라디에이터 호스 점검'], parts:['coolant'], memo:'' },
+    { id:'d04', date:'2023-06-15', odo:82000, shop:'데모 타이어', cat:'타이어', cost:540000,
+      title:'타이어 4본', work:['타이어 4본 (205/60R16)'], parts:['tire'], memo:'' },
+    { id:'d05', date:'2025-02-08', odo:90500, shop:'데모 정비소', cat:'소모품', cost:92000,
+      title:'엔진오일 · 점화플러그', work:['엔진오일·오일필터','점화플러그 4개'], parts:['engine_oil','spark_plug'], memo:'' },
+    { id:'d06', date:'2026-04-19', odo:96200, shop:'데모 검사소', cat:'검사', cost:54000,
+      title:'종합검사', work:['종합검사'], parts:[], kind:'inspection', memo:'데모 · 다음 검사 2027-03-14' },
+    { id:'d07', date:'2026-10-02', odo:97800, shop:'데모 정비소', cat:'전기', cost:118000,
+      title:'배터리 교환', work:['배터리 교환'], parts:['battery'], memo:'' }
+  ],
+  fuel:[
+    { id:'f01', date:'2026-09-28', odo:96400, liters:38.2, cost:64000, station:'데모 주유소', memo:'' },
+    { id:'f02', date:'2026-10-12', odo:97020, liters:36.5, cost:61000, station:'데모 주유소', memo:'' },
+    { id:'f03', date:'2026-10-26', odo:97680, liters:37.8, cost:63500, station:'데모 주유소', memo:'' },
+    { id:'f04', date:'2026-11-09', odo:98240, liters:36.9, cost:62000, station:'데모 주유소', memo:'' },
+    { id:'f05', date:'2026-11-23', odo:98800, liters:37.4, cost:63000, station:'데모 주유소', memo:'' }
+  ]
+};
+</script>
+<script>
+/* ============================================================================
+   2) 앱 상태 · 계산 · 화면 (앞부분)
+============================================================================ */
+const $ = (sel, root) => (root || document).querySelector(sel);
+const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const clone = (o) => JSON.parse(JSON.stringify(o));
+
+const DEMO = new URLSearchParams(location.search).get('demo') === '1';
+const STORE = DEMO ? STORE_KEY + '.demo' : STORE_KEY;
+let S = null;
+let VIEW = 'home';
+let LIFE_FILTER = 'all';
+let LOG_SEG = 'maint';
+let LOG_FILTER = { year: 'all', cat: 'all' };
+let formParts = new Set();
+let formCat = null;
+let editingId = null;
+
+/* ---------------------------------------------------------------- 날짜·숫자 */
+function p2(n){ return String(n).padStart(2,'0'); }
+function isoToday(){ const d = new Date(); return d.getFullYear() + '-' + p2(d.getMonth()+1) + '-' + p2(d.getDate()); }
+function parseISO(s){ const p = String(s).split('-').map(Number); return Date.UTC(p[0], (p[1] || 1) - 1, p[2] || 1); }
+function daysBetween(aISO, bISO){
+  const a = parseISO(aISO), b = parseISO(bISO);
+  return Math.round((b - a) / 86400000);
+}
+function fmtDate(s){ return s ? String(s).slice(0,10).replace(/-/g,'.') : '-'; }
+function fmtDay(s){
+  if (!s) return '-';
+  const p = String(s).split('-');
+  return Number(p[1]) + '월 ' + Number(p[2]) + '일';
+}
+function addMonthsISO(fromISO, months){
+  const p = String(fromISO).split('-').map(Number);
+  const d = new Date(Date.UTC(p[0], p[1]-1, p[2]));
+  const day = d.getUTCDate();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + Math.round(months));
+  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth()+1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(day, last));
+  return d.getUTCFullYear() + '-' + p2(d.getUTCMonth()+1) + '-' + p2(d.getUTCDate());
+}
+function fmtKm(n){
+  if (n == null || isNaN(n)) return '-';
+  return Math.round(Number(n)).toLocaleString('ko-KR');
+}
+function fmtWon(n){
+  if (n == null || isNaN(n)) return '-';
+  return Math.round(Number(n)).toLocaleString('ko-KR') + '원';
+}
+function wonShort(n){
+  if (!n) return '0원';
+  if (n >= 100000000) return (n/100000000).toFixed(1).replace(/\.0$/,'') + '억원';
+  if (n >= 10000) return Math.round(n/10000).toLocaleString('ko-KR') + '만원';
+  return fmtWon(n);
+}
+function fmtMonths(m){
+  if (m == null) return '-';
+  const a = Math.abs(m);
+  if (a < 1) return Math.round(a*30.44) + '일';
+  const total = Math.round(a);
+  if (total < 12) return total + '개월';
+  const y = Math.floor(total/12), mo = total % 12;
+  return y + '년' + (mo ? ' ' + mo + '개월' : '');
+}
+
+/* ---------------------------------------------------------------- 저장 */
+function normalize(o){
+  const s = clone(o || {});
+  const v = s.vehicle || {};
+  s.mode = s.mode || (DEMO ? 'demo' : 'real');
+  s.vehicle = Object.assign({
+    model:'크루즈 1.8 DOHC LT+', short:'크루즈 1.8', trim:'LT+', year:2012, regDate:'2012-11',
+    fuel:'가솔린', engine:'F18D4 1.8L', trans:'6단 자동', tireSize:'205/60R16',
+    odometer:0, odometerAsOf:isoToday(), inspectionDue:'', annualKm:10000
+  }, v);
+  s.vehicle.odometer = Number(s.vehicle.odometer) || 0;
+  s.vehicle.annualKm = Number(s.vehicle.annualKm) || 10000;
+  s.records = (Array.isArray(s.records) ? s.records : []).map((r, i) => Object.assign({
+    id: 'r' + i + '_' + Math.random().toString(36).slice(2,7), date: isoToday(), odo:null, shop:'', cat:'기타', cost:0,
+    title:'', work:[], parts:[], memo:'', kind:'maint'
+  }, r));
+  s.records.sort((a,b) => String(b.date).localeCompare(String(a.date)));
+  s.fuel = (Array.isArray(s.fuel) ? s.fuel : []).map((f, i) => Object.assign({
+    id: 'f' + i + '_' + Math.random().toString(36).slice(2,7), date: isoToday(), odo:null, liters:0, cost:0, station:'', memo:''
+  }, f));
+  s.fuel.sort((a,b) => String(b.date).localeCompare(String(a.date)) || (Number(b.odo||0) - Number(a.odo||0)));
+  s.notes = Array.isArray(s.notes) ? s.notes : [];
+  s.checks = s.checks && typeof s.checks === 'object' ? s.checks : {};
+  s.settings = Object.assign({ theme:'auto', sheetUrl:'' }, s.settings || {});
+  return s;
+}
+function readStore(key){
+  try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+}
+function persist(skipPush){
+  S.updatedAt = new Date().toISOString();
+  try { localStorage.setItem(STORE, JSON.stringify(S)); } catch (e) {}
+  if (!skipPush) schedulePush();
+}
+function recordsAsc(){ return S.records.slice().sort((a,b) => String(a.date).localeCompare(String(b.date))); }
+
+/* ---------------------------------------------------------------- 부품 계산 */
+function partsOf(rec){
+  return (rec.parts || []).map(p => (typeof p === 'string' ? { key:p, partial:false } : { key:p.key, partial:!!p.partial }));
+}
+function noteWith(word){
+  return (S.notes || []).some(function(n){ return String(n.title || '').indexOf(word) >= 0 || String(n.body || '').indexOf(word) >= 0; });
+}
+function realOnly(){ return S && S.mode === 'real'; }
+function lastService(key, includePartial){
+  let best = null;
+  recordsAsc().forEach(rec => {
+    partsOf(rec).forEach(p => {
+      if (p.key !== key) return;
+      if (p.partial && !includePartial) return;
+      if (!best || String(rec.date) >= String(best.date)) {
+        best = { date: rec.date, odo: (rec.odo == null ? null : Number(rec.odo)), rec: rec, partial: p.partial };
+      }
+    });
+  });
+  return best;
+}
+function nameOf(key){
+  if (ITEM_BY_KEY[key]) return ITEM_BY_KEY[key].name;
+  const alt = ITEMS.find(i => i.alt && i.alt.key === key);
+  return alt ? alt.alt.name : key;
+}
+
+/* 검사·점검에서 ‘양호’ 판정을 받은 항목은 교체 시급 대신 곧 점검으로 낮춥니다 */
+const EVIDENCE = {
+  brake_pad_front:{ date:'2024-12-12', note:'2024.12 종합검사 · 패드 마모 25% 이하(양호)' },
+  brake_pad_rear:{ date:'2024-12-12', note:'2024.12 종합검사 · 패드 마모 25% 이하(양호)' },
+  tire:{ date:'2024-12-12', note:'2024.12 종합검사 · 타이어 홈 8mm 이상' }
+};
+
+function gaugeFor(spec, today){
+  today = today || isoToday();
+  const v = S.vehicle;
+  const last = spec.key ? lastService(spec.key, false) : null;
+  const baseDate = last ? last.date : ((v.regDate || '2012-01') + '-01');
+  const baseOdo = last ? last.odo : 0;
+  const odoNow = Number(v.odometer) || 0;
+  const kmUsed = baseOdo == null ? null : Math.max(0, odoNow - baseOdo);
+  const days = Math.max(0, daysBetween(baseDate, today));
+  const monthsUsed = days / 30.4375;
+  const kmRatio = (spec.km && kmUsed != null) ? kmUsed / spec.km : 0;
+  const timeRatio = spec.months ? monthsUsed / spec.months : 0;
+  const ratio = Math.max(kmRatio, timeRatio);
+  const kmLeft = spec.km ? spec.km - kmUsed : null;
+  const monthsLeft = spec.months ? spec.months - monthsUsed : null;
+
+  let status = ratio >= 1 ? 'danger' : ratio >= 0.8 ? 'soon' : 'good';
+  const ev = spec.key ? EVIDENCE[spec.key] : null;
+  let capped = false;
+  if (ev && status === 'danger' && Math.abs(daysBetween(ev.date, today)) <= 730) { status = 'soon'; capped = true; }
+  if (spec.checkOnly && status === 'danger') status = 'check';
+  if (spec.followUp && status === 'danger' && !lastService(spec.followUp)) { status = 'soon'; capped = false; }
+
+  const touch = spec.key ? lastService(spec.key, true) : null;
+  return {
+    spec, last, touch, baseDate, kmUsed, monthsUsed, kmLeft, monthsLeft, kmRatio, timeRatio, ratio, status, capped,
+    pct: Math.max(2, Math.min(100, Math.round(ratio * 100))),
+    statusText: status === 'danger' ? '교체 시급' : status === 'soon' ? '곧 점검' : status === 'check' ? '확인 필요' : '양호'
+  };
+}
+function lifeList(){
+  return ITEMS.map(it => {
+    const g = gaugeFor(it);
+    if (it.alt) g.alt = gaugeFor(Object.assign({ key:it.alt.key }, it.alt));
+    return g;
+  });
+}
+const STATUS_ORDER = { danger:0, check:1, soon:2, good:3 };
+
+function remainText(g){
+  const bits = [];
+  if (g.kmLeft != null) bits.push(g.kmLeft >= 0 ? fmtKm(g.kmLeft) + 'km 남음' : fmtKm(-g.kmLeft) + 'km 초과');
+  if (g.monthsLeft != null) bits.push(g.monthsLeft >= 0 ? fmtMonths(g.monthsLeft) + ' 남음' : fmtMonths(-g.monthsLeft) + ' 초과');
+  return bits.join(' · ');
+}
+function cycleText(spec){
+  const bits = [];
+  if (spec.km) bits.push(fmtKm(spec.km) + 'km');
+  if (spec.months) bits.push(fmtMonths(spec.months));
+  return bits.join(' / ');
+}
+function lastText(g){
+  if (g.last) return fmtDate(g.last.date) + (g.last.odo ? ' · ' + fmtKm(g.last.odo) + 'km' : '');
+  const bits = ['교체 기록 없음'];
+  if (g.spec.key === 'timing_belt') bits[0] = '신차(' + fmtDate(S.vehicle.regDate + '-01').slice(0,4) + ') 이후 교체 기록 없음';
+  if (g.touch && g.touch.partial) bits.push('최근 보충 ' + fmtDate(g.touch.date));
+  return bits.join(' · ');
+}
+
+/* ---------------------------------------------------------------- 홈 */
+function inspectionInfo(){
+  const due = S.vehicle.inspectionDue;
+  if (!due) return null;
+  const left = daysBetween(isoToday(), due);
+  return { due: due, left: left, overdue: left < 0, status: left < 0 ? 'danger' : left <= 30 ? 'soon' : 'good' };
+}
+function alertEntries(){
+  const list = [];
+  const ins = inspectionInfo();
+  if (ins && ins.status !== 'good') {
+    list.push({
+      id:'inspection', rank:0, status: ins.status, emoji:'📋',
+      title: ins.overdue ? '자동차 종합검사 기한이 지났어요' : '자동차 종합검사 ' + ins.left + '일 남았어요',
+      body: ins.overdue
+        ? '검사 만료일이 <b>' + fmtDate(ins.due) + '</b> — <b>' + (-ins.left) + '일</b> 지났습니다. 지연 과태료가 붙고, 사고 때 보험 처리에서 불리할 수 있어요. 검사소 예약은 당일도 가능한 곳이 많습니다.'
+        : '검사 만료일 <b>' + fmtDate(ins.due) + '</b>. 미리 예약하면 대기 없이 받을 수 있어요.',
+      sub:'검사 만료 ' + fmtDate(ins.due), go:'검사 예약·준비물 보기', action:'inspection'
+    });
+  }
+  lifeList().forEach(g => {
+    const it = g.spec;
+    if (it.rank == null) return;
+    if (g.status !== 'danger' && g.status !== 'check') return;
+    list.push({
+      id: it.key, rank: it.rank, status: g.status, emoji: it.emoji,
+      title: (typeof it.alertTitle === 'function' ? it.alertTitle(g) : it.alertTitle),
+      body: (typeof it.alertBody === 'function' ? it.alertBody(g) : it.alertBody),
+      sub: lastText(g) + ' · ' + remainText(g), go: '왜 필요한지 · 정비소에서 할 말', action: 'item', key: it.key, g: g
+    });
+  });
+  return list.sort((a,b) => a.rank - b.rank);
+}
+function soonEntries(){
+  return lifeList()
+    .filter(g => g.spec.rank != null && g.status === 'soon')
+    .sort((a,b) => (a.spec.rank||99) - (b.spec.rank||99))
+    .map(g => ({ id:g.spec.key, key:g.spec.key, status:g.status, emoji:g.spec.emoji, title:g.spec.name, sub:remainText(g), g:g }));
+}
+
+function renderHero(){
+  const v = S.vehicle;
+  const total = S.records.reduce((a, r) => a + (Number(r.cost) || 0), 0);
+  const alerts = alertEntries();
+  const urgent = alerts.filter(a => a.status === 'danger' || a.status === 'check').length;
+  const soon = lifeList().filter(g => g.status === 'soon').length;
+  const ins = inspectionInfo();
+  const badge = urgent ? '<span class="hero-badge">지금 할 일 ' + urgent + '</span>'
+    : soon ? '<span class="hero-badge warn">점검 예정 ' + soon + '</span>'
+    : '<span class="hero-badge ok">정비 양호</span>';
+  const insBadge = !ins ? '<b>-</b>' : ins.overdue ? '<b class="bad">만료 ' + (-ins.left) + '일</b>'
+    : ins.left <= 30 ? '<b class="warn">D-' + ins.left + '</b>' : '<b class="ok">D-' + ins.left + '</b>';
+  $('#hero').innerHTML =
+    '<div class="hero-top">' +
+      '<div><h2>' + esc(v.short || v.model) + ' <span class="lite">' + esc(v.trim || '') + '</span></h2>' +
+        '<div class="hero-subline">' + esc(v.year) + '년식 · ' + esc(v.fuel || '가솔린') + ' · ' + esc(v.trans || '') + '</div>' +
+      '</div>' + badge +
+    '</div>' +
+    '<div class="hero-odo"><div class="odo-label">현재 주행거리</div>' +
+      '<button class="odo-btn" id="odoBtn" title="주행거리 수정"><b class="num">' + fmtKm(v.odometer) + '</b><span class="u">km</span>' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16v4Z"/><path d="M13.5 6.5 17.5 10.5"/></svg></button>' +
+      '<div class="odo-sub">' + fmtDate(v.odometerAsOf || isoToday()) + ' 기준 · 연평균 약 ' + (v.annualKm/10000).toFixed(1).replace(/\.0$/,'') + '만 km</div>' +
+    '</div>' +
+    (function(){
+      const ls = lifeList();
+      const d = ls.filter(x => x.status === 'danger').length;
+      const s2 = ls.filter(x => x.status === 'soon' || x.status === 'check').length;
+      const g2 = ls.filter(x => x.status === 'good').length;
+      return '<div class="tlight"><span class="d"><i></i>교체 시급 ' + d + '</span><span class="s"><i></i>곧 점검·확인 ' + s2 + '</span><span class="g"><i></i>양호 ' + g2 + '</span></div>';
+    })() +
+    '<div class="hero-stats">' +
+      '<div><span>누적 정비비</span><b class="num">' + wonShort(total) + '</b></div>' +
+      '<div><span>정비 기록</span><b class="num">' + S.records.length + '건</b></div>' +
+      '<div><span>다음 종합검사</span>' + insBadge + '</div>' +
+    '</div>';
+  $('#brandSub').textContent = (v.short || '내 차') + ' · ' + fmtKm(v.odometer) + ' km';
+}
+
+function renderHomeAlerts(){
+  const alerts = alertEntries();
+  const wrap = $('#homeAlerts');
+  let html = '<div class="sec-head"><h3>지금 할 일</h3><span class="cnt">' + alerts.length + '건</span></div>';
+  if (!alerts.length) {
+    html += '<div class="empty"><b>지금 급한 정비는 없어요</b>기록이 쌓일수록 더 정확해집니다.</div>';
+  } else {
+    html += '<div class="alerts">' + alerts.map(a =>
+      '<button class="alert ' + a.status + '" data-alert="' + esc(a.action) + '" data-key="' + esc(a.key || a.id) + '">' +
+        '<span class="ico">' + a.emoji + '</span>' +
+        '<div class="body"><div class="top"><b>' + a.title + '</b><span class="status ' + a.status + '">' + (a.status === 'danger' ? '긴급' : a.status === 'check' ? '확인' : '곧') + '</span></div>' +
+          '<p>' + a.body + '</p><div class="go">' + a.sub + '</div></div>' +
+      '</button>').join('') + '</div>';
+  }
+  const soon = soonEntries();
+  let sumLow = 0, sumHigh = 0;
+  alerts.filter(a => a.g).forEach(a => { sumLow += (a.g.spec.low || 0); sumHigh += (a.g.spec.high || 0); });
+  if (sumLow) {
+    html += '<button class="plan-card" id="planBtn"><span class="arrow">›</span>' +
+      '<div class="row1"><span class="tag">예상 견적</span>정비 ' + alerts.filter(a => a.g).length + '건을 한 번에 하면</div>' +
+      '<div class="money num">' + wonShort(sumLow) + ' ~ ' + wonShort(sumHigh) + '<em>참고 범위</em></div>' +
+      '<div class="sub">부품 등급·정비소에 따라 달라요. 타이밍벨트와 미션오일을 같이 하면 공임을 아낄 수 있습니다.</div></button>';
+  }
+  wrap.innerHTML = html;
+
+  const soonWrap = $('#homeSoon');
+  soonWrap.innerHTML = soon.length
+    ? '<div class="sec-head"><h3>이번 분기 안에</h3><span class="cnt">' + soon.length + '건</span></div><div class="alerts">' +
+      soon.map(s => '<button class="alert soon" data-alert="item" data-key="' + esc(s.key) + '">' +
+        '<span class="ico">' + s.emoji + '</span><div class="body"><div class="top"><b>' + esc(s.title) + '</b><span class="status soon">곧 점검</span></div>' +
+        '<p>' + (s.g.spec.tip || '') + '</p><div class="go">' + s.sub + '</div></div></button>').join('') + '</div>'
+    : '';
+}
+
+function renderHomeRecent(){
+  const recs = S.records.slice(0, 3);
+  let html = '<div class="sec-head"><h3>최근 정비</h3><button class="more" data-view="log">전체 보기</button></div>';
+  if (!recs.length) {
+    html += '<div class="empty"><b>정비 기록이 없어요</b>+ 버튼으로 첫 기록을 남겨 보세요.</div>';
+  } else {
+    html += '<div class="alerts">' + recs.map(r =>
+      '<button class="alert" data-rec="' + esc(r.id) + '">' +
+        '<span class="ico">' + (r.kind === 'inspection' ? '📋' : r.cat.indexOf('사고') === 0 ? '🚗' : '🔧') + '</span>' +
+        '<div class="body"><div class="top"><b>' + esc(r.title || r.cat) + '</b><span class="status none">' + fmtWon(r.cost) + '</span></div>' +
+        '<p>' + esc(r.shop || '정비소 미기재') + (r.odo ? ' · ' + fmtKm(r.odo) + 'km' : '') + '</p>' +
+        '<div class="go">' + fmtDate(r.date) + ' · ' + esc(r.cat) + '</div></div></button>').join('') + '</div>';
+  }
+  $('#homeRecent').innerHTML = html;
+  $('#homeNote').innerHTML = '<b>이 화면의 숫자는 기록과 기준으로 계산한 참고값입니다.</b><br>' +
+    ' 주행거리를 실제 계기판과 맞추면 남은 수명이 정확해집니다. 이상한 소리·냄새·경고등이 있으면 게이지와 관계없이 바로 정비소에 가세요. · 최종 저장 ' +
+    (S.updatedAt ? fmtDate(S.updatedAt.slice(0,10)) : '없음');
+}
+
+/* ---------------------------------------------------------------- 소모품 탭 */
+function renderLife(){
+  const all = lifeList();
+  const count = { danger:0, check:0, soon:0, good:0 };
+  all.forEach(g => count[g.status]++);
+  $('#lifeSummary').innerHTML =
+    '<span class="d"><i></i>교체 시급 ' + count.danger + '</span>' +
+    '<span class="s"><i></i>곧 점검 ' + count.soon + '</span>' +
+    '<span class="g"><i></i>양호 ' + count.good + '</span>' +
+    (count.check ? '<span><i style="background:var(--blue)"></i>확인 필요 ' + count.check + '</span>' : '');
+  const filters = [['all','전체'],['danger','교체 시급'],['check','확인 필요'],['soon','곧 점검'],['good','양호']];
+  $('#lifeFilters').innerHTML = filters.map(f =>
+    '<button class="filterchip ' + (LIFE_FILTER === f[0] ? 'on' : '') + '" data-life="' + f[0] + '">' + f[1] +
+    (f[0] === 'all' ? ' ' + all.length : count[f[0]] ? ' ' + count[f[0]] : '') + '</button>').join('');
+
+  const list = all
+    .filter(g => LIFE_FILTER === 'all' || g.status === LIFE_FILTER)
+    .sort((a,b) => (STATUS_ORDER[a.status] - STATUS_ORDER[b.status]) || ((a.spec.rank||90) - (b.spec.rank||90)) || (b.ratio - a.ratio));
+  if (!list.length) { $('#lifeList').innerHTML = '<div class="empty"><b>해당하는 항목이 없어요</b>다른 상태를 눌러 보세요.</div>'; return; }
+  $('#lifeList').innerHTML = list.map(g => {
+    const it = g.spec;
+    const note = g.capped && EVIDENCE[it.key] ? EVIDENCE[it.key].note : '';
+    return '<button class="part" data-item="' + esc(it.key) + '">' +
+      '<div class="ptop"><span class="pico">' + it.emoji + '</span><div class="pname">' + esc(it.name) + '<small>' + esc(it.sub || '') + '</small></div>' +
+      '<span class="status ' + g.status + '">' + g.statusText + '</span></div>' +
+      '<div class="pmeta"><b class="num">' + remainText(g) + '</b></div>' +
+      '<div class="bar ' + g.status + '"><i style="width:' + g.pct + '%"></i></div>' +
+      '<div class="pfoot"><span>주기 ' + cycleText(it) + '</span><span class="hi ' + g.status + '">' + (g.status === 'check' ? '상태 확인 필요' : g.ratio >= 1 ? (g.ratio).toFixed(1) + '배 소진' : Math.round(g.ratio*100) + '% 소진') + '</span></div>' +
+      '<div class="pfoot"><span>마지막 ' + lastText(g) + '</span></div>' +
+      (g.alt ? '<div class="note"><b>' + esc(g.alt.spec.name) + '</b> · ' + g.alt.statusText + ' · ' + (g.alt.ratio < 5 ? remainText(g.alt) : '교체 이력이 없어 상태 확인이 필요해요') + '</div>' : '') +
+      (note ? '<div class="note">' + esc(note) + '</div>' : '') +
+    '</button>';
+  }).join('');
+}
+</script>
+<script>
+/* ============================================================================
+   3) 가이드 · 기록 · 입력 폼 · 설정 · 동기화
+============================================================================ */
+
+/* ---------------------------------------------------------------- 가이드 */
+function renderGuide(){
+  const v = S.vehicle;
+  const total = S.records.length;
+  $('#guideIntro').innerHTML =
+    '<h3>' + esc(v.short || '내 차') + ' ' + esc(v.engine || '') + ' — 어떤 차인가요</h3>' +
+    '<p>' + esc(v.year) + '년식 크루즈 1.8(F18D4)은 <b>고무 타이밍벨트</b>와 <b>보령 6단 자동변속기</b>를 쓰는 모델입니다. 냉각계통(써모스탯 하우징·서지탱크·오일쿨러) 누수와 로커암 커버 누유가 대표적인 약점이라, 이 부위들은 <b>한 번 고쳐도 다시 볼 수 있다</b>는 전제로 관리하는 게 안전합니다.</p>' +
+    '<div class="tags"><span>' + esc(v.year) + '년식 · ' + fmtKm(v.odometer) + 'km</span><span>정비 기록 ' + total + '건</span><span>타이밍벨트 ' + (lastService('timing_belt') ? '교환함' : '미교환') + '</span>' +
+      (realOnly() ? '<span>냉각계통 수리 ' + S.records.filter(function(r){ return partsOf(r).some(function(x){ return x.key === 'coolant'; }); }).length + '회</span><span>로커암 커버 ' + S.records.filter(function(r){ return String(r.title||'').indexOf('로커암') >= 0; }).length + '회</span>' : '') +
+    '</div>';
+
+  $('#guideList').innerHTML = GUIDE.map(g => {
+    const hist = realOnly() ? g.history.map(h => '<span class="' + (h.hot ? 'hot' : '') + '">' + esc(h.date) + ' ' + esc(h.text) + '</span>').join('') : '';
+    return '<button class="guide-card" data-guide="' + g.no + '">' +
+      '<span class="gno">' + p2(g.no) + '</span>' +
+      '<h4>' + esc(g.title) + '</h4><p>' + g.short + '</p>' +
+      (hist ? '<div class="hist">' + hist + '</div>' : '') + '</button>';
+  }).join('');
+
+  const done = CHECKLIST.filter((_, i) => S.checks['c' + i]).length;
+  $('#checkCnt').textContent = done + '/' + CHECKLIST.length + ' 완료';
+  $('#checklist').innerHTML = CHECKLIST.map((t, i) =>
+    '<button class="checkitem ' + (S.checks['c' + i] ? 'done' : '') + '" data-check="' + i + '">' +
+      '<span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></span>' +
+      '<span>' + esc(t) + '</span></button>').join('');
+
+  $('#scriptText').textContent = buildScript();
+}
+function buildScript(){
+  const v = S.vehicle;
+  const items = alertEntries().filter(a => a.g);
+  const lines = items.map((a, i) => (i + 1) + ') ' + a.g.spec.say);
+  if (!lines.length) {
+    return '쉐보레 ' + (v.short || '크루즈') + ' (' + v.year + '년식 · ' + fmtKm(v.odometer) + 'km) 정비 부탁드립니다.\n' +
+      '지금은 특별히 급한 항목은 없고, 기본 점검(엔진오일·냉각수·타이어 공기압·브레이크)과 하부 누유 확인 부탁드립니다.';
+  }
+  return '쉐보레 ' + (v.short || '크루즈') + ' (' + v.year + '년식 · ' + fmtKm(v.odometer) + 'km, ' + (v.engine || '') + ') 정비 부탁드립니다.\n' +
+    lines.join('\n') + '\n\n작업 전에 부품명·수량·공임을 나눠 견적 주시고, 추가로 발견되는 누유·소음은 사진과 함께 알려 주세요.';
+}
+
+/* ---------------------------------------------------------------- 기록 탭 */
+function renderLog(){
+  const total = S.records.reduce((a, r) => a + (Number(r.cost) || 0), 0);
+  const thisYear = String(new Date().getFullYear());
+  const yr = S.records.filter(r => String(r.date).slice(0,4) === thisYear).reduce((a, r) => a + (Number(r.cost) || 0), 0);
+  const first = S.records.length ? S.records[S.records.length - 1].date : isoToday();
+  const years = Math.max(1, daysBetween(first, isoToday()) / 365.25);
+  $('#logSum').innerHTML =
+    '<div><span>누적 정비비</span><b class="num">' + wonShort(total) + '</b></div>' +
+    '<div><span>' + thisYear + '년 지출</span><b class="num">' + wonShort(yr) + '</b></div>' +
+    '<div><span>연평균</span><b class="num">' + wonShort(total / years) + '</b></div>';
+
+  const byYear = {};
+  S.records.forEach(r => { const y = String(r.date).slice(0,4); byYear[y] = (byYear[y] || 0) + (Number(r.cost) || 0); });
+  const ys = Object.keys(byYear).sort();
+  const max = Math.max.apply(null, ys.map(y => byYear[y]).concat([1]));
+  $('#yearBars').innerHTML = ys.length ? ys.map(y =>
+    '<div class="b" title="' + y + ' · ' + fmtWon(byYear[y]) + '"><i style="height:' + Math.max(4, Math.round(byYear[y] / max * 56)) + 'px"></i><em>' + y.slice(2) + '</em></div>').join('')
+    : '<div class="muted" style="font-size:13px">기록이 없습니다.</div>';
+
+  const yearsAll = Array.from(new Set(S.records.map(r => String(r.date).slice(0,4)))).sort().reverse();
+  $('#logFilters').innerHTML = '<button class="filterchip ' + (LOG_FILTER.year === 'all' ? 'on' : '') + '" data-year="all">전체 연도</button>' +
+    yearsAll.map(y => '<button class="filterchip ' + (LOG_FILTER.year === y ? 'on' : '') + '" data-year="' + y + '">' + y + '</button>').join('') +
+    '<select class="sel" id="logCat"><option value="all">분류 전체</option>' +
+    Array.from(new Set(S.records.map(r => r.cat))).sort().map(c => '<option value="' + esc(c) + '"' + (LOG_FILTER.cat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select>';
+  const catSel = $('#logCat');
+  if (catSel) catSel.onchange = function(){ LOG_FILTER.cat = this.value; renderLog(); };
+
+  const list = S.records.filter(r => (LOG_FILTER.year === 'all' || String(r.date).slice(0,4) === LOG_FILTER.year) && (LOG_FILTER.cat === 'all' || r.cat === LOG_FILTER.cat));
+  $('#logCnt').textContent = list.length + '건 · ' + wonShort(list.reduce((a, r) => a + (Number(r.cost)||0), 0));
+  $('#timeline').innerHTML = list.length ? list.map(r =>
+    '<div class="tl-item">' +
+      '<div class="tl-left"><div class="yr">' + String(r.date).slice(0,4) + '</div><div class="dt">' + String(r.date).slice(5,7) + '.' + String(r.date).slice(8,10) + '</div></div>' +
+      '<div class="tl-line"></div>' +
+      '<button class="tl-body" data-rec="' + esc(r.id) + '">' +
+        '<div class="t1"><b>' + esc(r.title || r.cat) + '</b><em class="num">' + (Number(r.cost) ? fmtWon(r.cost) : '미기재') + '</em></div>' +
+        '<div class="t2">' + esc(r.shop || '정비소 미기재') + (r.odo ? ' · ' + fmtKm(r.odo) + 'km' + (r.odoEstimated ? '(추정)' : '') : '') + ' <span class="cat">' + esc(r.cat) + '</span></div>' +
+        (r.work && r.work.length ? '<div class="t3">' + r.work.map(esc).join(' · ') + '</div>' : '') +
+      '</button></div>').join('')
+    : '<div class="empty"><b>조건에 맞는 기록이 없어요</b>필터를 바꾸거나 + 버튼으로 기록을 추가해 보세요.</div>';
+
+  renderFuel();
+}
+
+function fuelListDesc(){
+  return S.fuel.slice().sort((a,b) => String(b.date).localeCompare(String(a.date)) || (Number(b.odo||0) - Number(a.odo||0)));
+}
+function fuelStats(){
+  const list = fuelListDesc();
+  const nowMonth = isoToday().slice(0, 7);
+  const byMonth = {};
+  let thisMonth = 0, totalCost = 0;
+  list.forEach(f => {
+    const c = Number(f.cost) || 0;
+    const m = String(f.date || '').slice(0, 7);
+    totalCost += c;
+    if (m === nowMonth) thisMonth += c;
+    if (m) byMonth[m] = (byMonth[m] || 0) + c;
+  });
+  const months = Object.keys(byMonth).sort();
+  const avgMonth = months.length ? Math.round(totalCost / months.length) : 0;
+  return { rows: list, thisMonth: thisMonth, avgMonth: avgMonth, totalCost: totalCost, count: list.length, byMonth: byMonth, months: months };
+}
+function renderFuel(){
+  const st = fuelStats();
+  const recentMonths = st.months.slice(-6);
+  const maxM = recentMonths.reduce((a, m) => Math.max(a, st.byMonth[m] || 0), 1);
+  const bars = recentMonths.length ? '<div style="margin-top:12px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px">' +
+    '<div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:10px">월별 주유비 지출</div>' +
+    recentMonths.map(m => {
+      const val = st.byMonth[m] || 0;
+      const pct = Math.max(4, Math.round((val / maxM) * 100));
+      return '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px">' +
+        '<span class="num" style="width:54px;color:var(--muted)">' + esc(m.slice(2)) + '</span>' +
+        '<div style="flex:1;height:10px;background:var(--bg);border-radius:999px;overflow:hidden"><div style="width:' + pct + '%;height:100%;background:var(--blue);border-radius:999px"></div></div>' +
+        '<span class="num" style="width:64px;text-align:right;font-weight:700">' + wonShort(val) + '</span></div>';
+    }).join('') + '</div>' : '';
+  $('#fuelSum').innerHTML = S.fuel.length
+    ? '<div class="log-sum" style="grid-template-columns:repeat(3,1fr)"><div><span>이번 달</span><b class="num">' + wonShort(st.thisMonth) + '</b></div>' +
+      '<div><span>월 평균</span><b class="num">' + wonShort(st.avgMonth) + '</b></div>' +
+      '<div><span>총 주유비</span><b class="num">' + wonShort(st.totalCost) + '</b></div></div>' + bars
+    : '<div class="empty"><b>주유 내역이 없어요</b>주유 금액과 날짜를 넣으면 월별 주유비 지출이 자동으로 집계됩니다.</div>';
+  $('#fuelList').innerHTML = st.rows.length ? st.rows.map(f =>
+    '<div class="list-row"><span class="d">' + fmtDate(f.date).slice(5) + '</span>' +
+      '<span class="t">' + (f.station ? esc(f.station) : '주유') + (f.memo ? ' · ' + esc(f.memo) : '') + '</span>' +
+      '<span class="c">' + fmtWon(f.cost) + '</span></div>').join('')
+    : '<div class="empty">아직 기록이 없습니다.</div>';
+}
+
+/* ---------------------------------------------------------------- 시트 */
+function openSheet(html){
+  $('#sheetBody').innerHTML = html;
+  $('#sheet').classList.add('on');
+  $('#scrim').classList.add('on');
+  document.body.style.overflow = 'hidden';
+  $('#sheet').scrollTop = 0;
+}
+function closeSheet(){
+  $('#sheet').classList.remove('on');
+  $('#scrim').classList.remove('on');
+  document.body.style.overflow = '';
+}
+function copyText(text, okMsg){
+  const done = () => toast(okMsg || '복사했어요');
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else fallbackCopy(text, done);
+}
+function fallbackCopy(text, done){
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); done(); } catch (e) { toast('복사가 막혔어요. 길게 눌러 선택해 주세요.'); }
+  document.body.removeChild(ta);
+}
+
+function itemSheet(key){
+  const parent = ITEM_BY_KEY[key] || ITEMS.find(i => i.alt && i.alt.key === key);
+  if (!parent) return;
+  const it = (parent.alt && parent.alt.key === key) ? Object.assign({ key:key }, parent.alt) : parent;
+  const g = gaugeFor(it);
+  const recs = S.records.filter(r => partsOf(r).some(p => p.key === it.key));
+  const ev = EVIDENCE[it.key];
+  let html = '<h3>' + esc(parent.name) + '</h3>' +
+    '<p class="sheet-sub">' + esc(parent.sub || '') + '</p>' +
+    '<div class="kv"><span class="status ' + g.status + '" style="height:auto;padding:5px 9px">' + g.statusText + '</span>' +
+      '<span>주기 <b>' + cycleText(it) + '</b></span><span>마지막 <b>' + esc(lastText(g)) + '</b></span>' +
+      '<span>' + remainText(g) + '</span>' + (it.key === 'timing_belt' && !g.last ? '<span>예상 시점 <b>이미 지남</b></span>' : '') + '</div>' +
+    '<div class="blocks">' +
+      '<div class="block"><h4><span class="e">ℹ️</span>왜 중요한가요</h4><p>' + parent.why + '</p></div>' +
+      '<div class="block"><h4><span class="e">⚠️</span>안 고치면 생기는 일</h4><ul>' + parent.symptoms.map(s => '<li>' + s + '</li>').join('') + '</ul></div>' +
+      '<div class="block"><h4><span class="e">💬</span>정비소에서 이렇게 말하세요</h4><p style="background:var(--card);border:1px solid var(--line2);border-radius:10px;padding:11px 12px">“' + esc(parent.say) + '”</p><div class="copy-row"><button class="btn small ghost" data-copy="' + esc(it.key) + '">문구 복사</button></div></div>' +
+      '<div class="block"><h4><span class="e">💰</span>예상 비용</h4><p>' + esc(parent.costText) + ' <span class="muted">· 정비소·부품 등급에 따라 달라요</span></p></div>' +
+      (parent.tip ? '<div class="block"><h4><span class="e">💡</span>이렇게 하세요</h4><p>' + parent.tip + '</p></div>' : '') +
+      (realOnly() && parent.myTip ? '<div class="block"><h4><span class="e">🚙</span>내 차 이력에서</h4><p>' + parent.myTip + '</p></div>' : '') +
+      (ev ? '<div class="block"><h4><span class="e">✅</span>최근 점검 판정</h4><p>' + esc(ev.note) + '</p></div>' : '') +
+      (parent.alt ? (function(){
+        const ag = gaugeFor(Object.assign({ key:parent.alt.key }, parent.alt));
+        return '<div class="block"><h4><span class="e">🧽</span>' + esc(parent.alt.name) + '</h4><p>주기 ' + fmtMonths(parent.alt.months) + ' · ' + ag.statusText + ' · ' + esc(lastText(ag)) + '</p></div>';
+      })() : '') +
+      (recs.length ? '<div class="block"><h4><span class="e">📚</span>내 정비 이력</h4><ul>' + recs.map(r => '<li>' + fmtDate(r.date) + ' · ' + esc(r.title || r.cat) + (r.cost ? ' · ' + fmtWon(r.cost) : '') + '</li>').join('') + '</ul></div>' : '') +
+    '</div>' +
+    '<div class="actions"><button class="btn ghost" data-close="1">닫기</button><button class="btn primary" data-addpart="' + esc(it.key) + '">이 항목 정비 기록</button></div>';
+  openSheet(html);
+}
+
+function inspectionSheet(){
+  const ins = inspectionInfo();
+  if (!ins) return;
+  openSheet('<h3>자동차 종합검사</h3>' +
+    '<p class="sheet-sub">만료 ' + fmtDate(ins.due) + ' · ' + (ins.overdue ? (-ins.left) + '일 지남' : ins.left + '일 남음') + '</p>' +
+    '<div class="blocks">' +
+      '<div class="block"><h4><span class="e">📋</span>지금 상태</h4><p>진단서에 적힌 다음 검사 만료일이 <b>' + fmtDate(ins.due) + '</b>입니다. ' + (ins.overdue ? '기한이 지나면 <b>지연 과태료</b>가 붙고, 사고 시 보험 처리에서 불리해질 수 있습니다.' : '미리 예약하면 대기 없이 받을 수 있습니다.') + '</p></div>' +
+      '<div class="block"><h4><span class="e">🔁</span>검사 주기</h4><p>승용차는 4년 후 첫 검사, 이후 2년마다. <b>8년이 지나면 종합검사</b>(정밀검사) 대상입니다. 이 차는 ' + esc(S.vehicle.year) + '년식이라 2년마다 종합검사입니다.</p></div>' +
+      '<div class="block"><h4><span class="e">🧾</span>준비물</h4><ul><li>자동차등록증(또는 등록증명)</li><li>자동차보험 가입증명서(전자 확인 가능한 경우 생략)</li><li>검사 수수료(종합검사 5~6만원대, 지역·차종별 차이)</li></ul></div>' +
+      '<div class="block"><h4><span class="e">🔧</span>검사 전에 하면 좋은 것</h4><ul><li>전구(전조등·미등·번호판등) 점등 확인</li><li>타이어 마모·공기압, 와이퍼 상태</li><li>엔진 경고등이 켜져 있으면 미리 정비 (검사 불합격 사유)</li><li>하부 누유가 있으면 검사 전에 점검</li></ul></div>' +
+      '<div class="block"><h4><span class="e">💬</span>예약</h4><p>한국교통안전공단 ‘자동차검사 예약’ 또는 가까운 지정 검사소·정비소에 전화로 예약하면 됩니다. 과천·의왕 쪽 검사소가 가깝습니다.</p></div>' +
+    '</div>' +
+    '<div class="actions"><button class="btn ghost" data-close="1">닫기</button><button class="btn primary" data-addpart="inspection">검사 기록 추가</button></div>');
+}
+
+function recordSheet(id){
+  const r = S.records.find(x => x.id === id);
+  if (!r) return;
+  const parts = partsOf(r).map(p => nameOf(p.key) + (p.partial ? '(보충)' : ''));
+  openSheet('<h3>' + esc(r.title || r.cat) + '</h3>' +
+    '<p class="sheet-sub">' + fmtDate(r.date) + (r.odo ? ' · ' + fmtKm(r.odo) + 'km' + (r.odoEstimated ? ' (추정)' : '') : '') + ' · ' + esc(r.shop || '정비소 미기재') + '</p>' +
+    '<div class="kv"><span class="status none">' + esc(r.cat) + '</span><span>비용 <b>' + (Number(r.cost) ? fmtWon(r.cost) : '미기재') + '</b></span>' + (r.kind === 'inspection' ? '<span>검사</span>' : '') + '</div>' +
+    '<div class="blocks">' +
+      (r.work && r.work.length ? '<div class="block"><h4>작업 내역</h4><ul>' + r.work.map(w => '<li>' + esc(w) + '</li>').join('') + '</ul></div>' : '') +
+      (r.memo ? '<div class="block"><h4>메모</h4><p>' + esc(r.memo) + '</p></div>' : '') +
+      (parts.length ? '<div class="block"><h4>수명 게이지에 반영된 항목</h4><p>' + esc(parts.join(' · ')) + '</p></div>' : '<div class="block"><h4>수명 게이지</h4><p class="muted">이 기록은 소모품 교체 항목이 없어 게이지에 영향을 주지 않습니다.</p></div>') +
+    '</div>' +
+    '<div class="actions"><button class="btn ghost" id="recDelete">삭제</button><button class="btn primary" id="recEdit">수정</button></div>');
+  $('#recEdit').onclick = function(){ closeSheet(); setTimeout(() => recordForm(r), 180); };
+  const del = $('#recDelete');
+  del.onclick = function(){
+    if (del.getAttribute('data-armed') !== '1') {
+      del.setAttribute('data-armed', '1'); del.textContent = '정말 삭제할까요?';
+      setTimeout(() => { del.removeAttribute('data-armed'); del.textContent = '삭제'; }, 3000);
+      return;
+    }
+    S.records = S.records.filter(x => x.id !== r.id);
+    persist(); closeSheet(); renderAll(); toast('기록을 삭제했어요.');
+  };
+}
+
+/* ---------------------------------------------------------------- 입력 폼 */
+const QUICK = [
+  { label:'엔진오일', parts:['engine_oil'] },
+  { label:'미션오일', parts:['atf'] },
+  { label:'타이어', parts:['tire'] },
+  { label:'브레이크', parts:['brake_pad_front','brake_fluid'] },
+  { label:'냉각수', parts:['coolant'] },
+  { label:'검사', parts:[] },
+  { label:'기타 수리', parts:[] }
+];
+function recordForm(rec, preset){
+  editingId = rec ? rec.id : null;
+  const r = rec || {};
+  formCat = (preset && preset.cat) || (r.kind === 'inspection' ? '검사/진단' : null);
+  formParts = new Set(partsOf(r).map(p => p.key));
+  const partsHtml = ITEMS.map(it => '<button class="pickchip ' + (formParts.has(it.key) ? 'on' : '') + '" data-part="' + it.key + '">' + it.emoji + ' ' + esc(it.name.split(' ')[0]) + '</button>').join('');
+  openSheet('<h3>' + (rec ? '정비 기록 수정' : '정비 기록') + '</h3>' +
+    '<p class="sheet-sub">항목을 고르면 그 소모품의 수명 게이지가 이 날짜·주행거리로 다시 계산됩니다.</p>' +
+    '<div class="form">' +
+      '<div class="field"><label>자주 하는 항목 (한 번에 고르기)</label><div class="pickchips" id="quickRow">' +
+        QUICK.map((q, i) => '<button class="pickchip" data-quick="' + i + '">' + esc(q.label) + '</button>').join('') + '</div></div>' +
+      '<div class="grid2"><div class="field"><label>날짜</label><input type="date" id="fDate" value="' + (r.date || isoToday()) + '"></div>' +
+        '<div class="field"><label>주행거리(km)</label><input type="number" inputmode="numeric" id="fOdo" value="' + (r.odo != null ? r.odo : (S.vehicle.odometer || '')) + '"></div></div>' +
+      '<div class="field"><label>정비소</label><input id="fShop" placeholder="예) 과천 정비소" value="' + esc(r.shop || '') + '"></div>' +
+      '<div class="field"><label>비용(원)</label><input type="number" inputmode="numeric" id="fCost" placeholder="0" value="' + (r.cost != null ? r.cost : '') + '"></div>' +
+      '<div class="field"><label>작업 항목 (수명 게이지 반영)</label><div class="pickchips" id="partRow">' + partsHtml + '</div><div class="hint">아무것도 고르지 않으면 기록만 남고 게이지는 그대로입니다.</div></div>' +
+      '<div class="field"><label>메모</label><textarea id="fMemo" placeholder="예) 냉각수 미세 누유 의심, 다음에 재점검">' + esc(r.memo || '') + '</textarea></div>' +
+    '</div>' +
+    '<div class="actions"><button class="btn ghost" data-close="1">취소</button><button class="btn primary" id="fSave">' + (rec ? '수정 저장' : '저장') + '</button></div>');
+
+  if (preset && preset.shop) $('#fShop').value = preset.shop;
+  $('#quickRow').onclick = function(e){
+    const b = e.target.closest('[data-quick]'); if (!b) return;
+    const q = QUICK[Number(b.getAttribute('data-quick'))];
+    q.parts.forEach(p => formParts.add(p));
+    $$('#partRow [data-part]').forEach(x => { if (formParts.has(x.getAttribute('data-part'))) x.classList.add('on'); });
+    b.classList.add('on');
+    if (q.label === '검사') {
+      formCat = '검사/진단';
+      $('#fShop').value = $('#fShop').value || '종합검사소';
+      $('#fMemo').value = $('#fMemo').value || '자동차 종합검사';
+    } else if (q.parts.length && formCat === '검사/진단') formCat = null;
+  };
+  $('#partRow').onclick = function(e){
+    const b = e.target.closest('[data-part]'); if (!b) return;
+    const k = b.getAttribute('data-part');
+    if (formParts.has(k)) formParts.delete(k); else formParts.add(k);
+    b.classList.toggle('on');
+  };
+  $('#fSave').onclick = function(){
+    const date = $('#fDate').value || isoToday();
+    const odoRaw = $('#fOdo').value.trim();
+    const odo = odoRaw === '' ? null : Math.max(0, Math.round(Number(odoRaw)));
+    const cost = Math.round(Number($('#fCost').value || 0)) || 0;
+    if (odo != null && isNaN(odo)) { toast('주행거리를 숫자로 넣어 주세요.'); return; }
+    const shop = $('#fShop').value.trim();
+    const memo = $('#fMemo').value.trim();
+    const picked = Array.from(formParts);
+    const names = picked.map(nameOf);
+    const cat = picked.length ? (ITEM_BY_KEY[picked[0]].cat || '정비') : (formCat || '기타');
+    const title = names.length ? names.slice(0, 3).join(' · ') + (names.length > 3 ? ' 외' : '')
+      : (formCat === '검사/진단' ? '자동차 종합검사' : (memo ? memo.slice(0, 24) : '정비 기록'));
+    const rec2 = {
+      id: editingId || ('r' + Date.now().toString(36)),
+      date: date, odo: odo, shop: shop, cat: cat, cost: cost, title: title,
+      work: names.length ? names : (memo ? [memo] : []),
+      parts: picked, memo: memo, kind: 'maint'
+    };
+    if (editingId) {
+      const i = S.records.findIndex(x => x.id === editingId);
+      if (i >= 0) S.records[i] = Object.assign({}, S.records[i], rec2);
+    } else S.records.push(rec2);
+    S.records.sort((a,b) => String(b.date).localeCompare(String(a.date)));
+    let odoMsg = '';
+    if (odo != null && odo > Number(S.vehicle.odometer || 0)) {
+      S.vehicle.odometer = odo; S.vehicle.odometerAsOf = isoToday(); odoMsg = ' · 주행거리 ' + fmtKm(odo) + 'km';
+    }
+    persist(); closeSheet(); renderAll();
+    toast((editingId ? '수정했어요' : '저장했어요') + (picked.length ? ' · ' + ITEM_BY_KEY[picked[0]].name + ' 게이지 리셋' : '') + odoMsg);
+  };
+}
+
+function fuelForm(){
+  openSheet('<h3>주유비 기록</h3><p class="sheet-sub">날짜와 금액만 넣으면 월별 주유비 통계에 바로 반영됩니다.</p>' +
+    '<div class="form"><div class="grid2"><div class="field"><label>날짜</label><input type="date" id="gDate" value="' + isoToday() + '"></div>' +
+    '<div class="field"><label>금액(원)</label><input type="number" id="gCost" inputmode="numeric" placeholder="예) 65000"></div></div>' +
+    '<div class="field"><label>주유소</label><input id="gStation" placeholder="예) 과천 셀프주유소"></div>' +
+    '<div class="field"><label>메모</label><input id="gMemo" placeholder="예) 하나카드"></div></div>' +
+    '<div class="actions"><button class="btn ghost" data-close="1">취소</button><button class="btn primary" id="gSave">저장</button></div>');
+  $('#gSave').onclick = function(){
+    const cost = Math.round(Number($('#gCost').value || 0)) || 0;
+    if (!(cost > 0)) { toast('주유 금액을 넣어 주세요.'); return; }
+    const f = { id:'f' + Date.now().toString(36), date: $('#gDate').value || isoToday(), odo: null, liters: 0,
+      cost: cost, station: $('#gStation').value.trim(), memo: $('#gMemo').value.trim() };
+    S.fuel.push(f);
+    persist(); closeSheet(); renderAll(); toast('주유비를 저장했어요.');
+  };
+}
+
+function mileageSheet(){
+  openSheet('<h3>주행거리 수정</h3><p class="sheet-sub">계기판 숫자에 맞추면 소모품 남은 수명이 바로 다시 계산됩니다.</p>' +
+    '<div class="form"><div class="field"><label>현재 주행거리(km)</label><input type="number" id="mOdo" inputmode="numeric" value="' + (S.vehicle.odometer || 0) + '">' +
+    '<div class="hint">' + fmtDate(S.vehicle.odometerAsOf || isoToday()) + ' 기준</div></div></div>' +
+    '<div class="actions"><button class="btn ghost" data-close="1">취소</button><button class="btn primary" id="mSave">저장</button></div>');
+  $('#mSave').onclick = function(){
+    const n = Math.max(0, Math.round(Number($('#mOdo').value || 0)));
+    S.vehicle.odometer = n; S.vehicle.odometerAsOf = isoToday();
+    persist(); closeSheet(); renderAll(); toast('주행거리를 ' + fmtKm(n) + 'km로 바꿨어요.');
+  };
+}
+
+/* ---------------------------------------------------------------- 설정 */
+function settingsSheet(){
+  const v = S.vehicle;
+  const url = sheetUrl();
+  openSheet('<h3>설정</h3><p class="sheet-sub">차량 정보 · 데이터 연결 · 백업</p>' +
+    '<div class="form">' +
+      '<div class="field"><label>차량 이름</label><input id="sShort" value="' + esc(v.short || '') + '"></div>' +
+      '<div class="grid2"><div class="field"><label>연식</label><input type="number" id="sYear" value="' + esc(v.year) + '"></div>' +
+      '<div class="field"><label>등록 연월</label><input id="sReg" value="' + esc(v.regDate || '') + '" placeholder="2012-11"></div></div>' +
+      '<div class="grid2"><div class="field"><label>현재 주행거리(km)</label><input type="number" id="sOdo" value="' + esc(v.odometer) + '"></div>' +
+      '<div class="field"><label>연평균 주행(km)</label><input type="number" id="sAnnual" value="' + esc(v.annualKm) + '"></div></div>' +
+      '<div class="field"><label>종합검사 만료일</label><input type="date" id="sInsp" value="' + esc(v.inspectionDue || '') + '"></div>' +
+      '<div class="field"><label>화면 테마</label><select id="sTheme"><option value="auto"' + (S.settings.theme === 'auto' ? ' selected' : '') + '>시스템 설정</option><option value="light"' + (S.settings.theme === 'light' ? ' selected' : '') + '>라이트</option><option value="dark"' + (S.settings.theme === 'dark' ? ' selected' : '') + '>다크</option></select></div>' +
+    '</div>' +
+    '<div class="actions"><button class="btn primary wide" id="sSave">차량 정보 저장</button></div>' +
+    '<div class="block" style="margin-top:18px"><h4>구글 시트 연결 (선택)</h4>' +
+      '<p>비공개 시트에 정비·주유 기록을 보관하면 폰과 PC가 같은 기록을 봅니다. Apps Script를 웹 앱으로 배포한 주소를 넣으세요.</p>' +
+      '<div class="field" style="margin-top:8px"><input id="sUrl" placeholder="https://script.google.com/macros/s/.../exec" value="' + esc(url) + '"></div>' +
+      '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn small primary" id="sConnect">연결</button><button class="btn small ghost" id="sPull">시트에서 불러오기</button><button class="btn small ghost" id="sPush">시트로 저장</button><button class="btn small ghost" id="sDisconnect">해제</button></div>' +
+      '<div class="hint" id="sStatus" style="margin-top:8px">' + (url ? '연결 주소가 저장되어 있습니다.' : '연결하지 않으면 이 브라우저에만 저장됩니다.') + '</div></div>' +
+    '<div class="block"><h4>데이터</h4><div style="display:flex;gap:6px;flex-wrap:wrap">' +
+      '<button class="btn small ghost" id="sExport">JSON 내보내기</button><button class="btn small ghost" id="sImport">JSON 가져오기</button>' +
+      '<button class="btn small ghost" id="sDemo">데모 보기</button><button class="btn small ghost" id="sReset">내 차 데이터로 되돌리기</button></div>' +
+      '<p style="margin-top:8px">기록 ' + S.records.length + '건 · 주유 ' + S.fuel.length + '건 · 저장 ' + (S.updatedAt ? fmtDate(S.updatedAt.slice(0,10)) : '-') + '</p></div>' +
+    '<div class="block"><h4>개인정보</h4><p>이 앱은 차량번호·소유자명·전화번호·차대번호를 저장하지 않습니다. 정비 날짜·주행거리·작업·금액·메모만 다룹니다. 공개 배포용 파일은 build-public.py로 데모 데이터만 남겨 만드세요.</p><p class="muted" style="margin-top:6px;font-size:12px">v' + APP_VERSION + (DEMO ? ' · 데모 세션' : '') + '</p></div>');
+
+  $('#sSave').onclick = function(){
+    S.vehicle.short = $('#sShort').value.trim() || '내 차';
+    S.vehicle.year = Number($('#sYear').value) || S.vehicle.year;
+    S.vehicle.regDate = $('#sReg').value.trim() || S.vehicle.regDate;
+    S.vehicle.odometer = Math.max(0, Math.round(Number($('#sOdo').value || 0)));
+    S.vehicle.annualKm = Math.max(1000, Math.round(Number($('#sAnnual').value || 10000)));
+    S.vehicle.inspectionDue = $('#sInsp').value || '';
+    S.settings.theme = $('#sTheme').value;
+    applyTheme(); persist(); closeSheet(); renderAll(); toast('저장했어요.');
+  };
+  $('#sConnect').onclick = function(){
+    const u = $('#sUrl').value.trim();
+    if (!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec/.test(u)) { $('#sStatus').textContent = '주소 형식이 맞지 않습니다. .../exec 로 끝나는 웹 앱 주소를 넣어 주세요.'; return; }
+    S.settings.sheetUrl = u; persist(true); setDot('busy', '연결 확인 중…');
+    $('#sStatus').textContent = '연결 확인 중…';
+    pullSheet(true).then(r => {
+      $('#sStatus').textContent = r.applied ? '연결됐고 시트의 기록을 불러왔습니다.' : '연결됐습니다. 시트가 비어 있으면 [시트로 저장]을 눌러 주세요.';
+      setDot('on', '구글 시트 연결됨'); toast('시트에 연결했어요.');
+    }).catch(err => { $('#sStatus').textContent = '연결 실패: ' + err.message; setDot('err', '연결 실패'); });
+  };
+  $('#sPull').onclick = function(){ pullSheet(true).then(r => { toast(r.applied ? '시트에서 불러왔어요.' : '시트에 새로 불러올 기록이 없어요.'); closeSheet(); renderAll(); }).catch(e => toast('불러오기 실패: ' + e.message)); };
+  $('#sPush').onclick = function(){ pushSheet(true).then(() => toast('시트에 저장했어요.')).catch(e => toast('저장 실패: ' + e.message)); };
+  $('#sDisconnect').onclick = function(){ S.settings.sheetUrl = ''; persist(true); setDot('', ''); $('#sUrl').value = ''; $('#sStatus').textContent = '연결을 해제했습니다. 이 기기에만 저장됩니다.'; };
+  $('#sExport').onclick = function(){
+    const blob = new Blob([JSON.stringify(S, null, 2)], { type:'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'car-care-' + isoToday() + '.json'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000); toast('JSON 파일을 내려받았어요.');
+  };
+  $('#sImport').onclick = function(){ $('#importFile').click(); };
+  $('#sDemo').onclick = function(){ location.search = '?demo=1'; };
+  const rb = $('#sReset');
+  rb.onclick = function(){
+    if (rb.getAttribute('data-armed') !== '1') { rb.setAttribute('data-armed','1'); rb.textContent = '정말 되돌릴까요?'; setTimeout(() => { rb.removeAttribute('data-armed'); rb.textContent = '내 차 데이터로 되돌리기'; }, 3000); return; }
+    S = normalize(DEMO ? DEMO_PRESET : (EMBED_REAL_DATA ? REAL_PRESET : DEMO_PRESET));
+    S.settings.sheetUrl = sheetUrl(); persist(); closeSheet(); renderAll(); toast('처음 데이터로 되돌렸어요.');
+  };
+}
+
+/* ---------------------------------------------------------------- 구글 시트 동기화 */
+let pushTimer = null;
+let dotState = '';
+function sheetUrl(){ return ((S && S.settings && S.settings.sheetUrl) || '').trim(); }
+function setDot(state, title){
+  dotState = state || '';
+  const d = $('#syncDot');
+  d.className = 'dot' + (state === 'on' ? ' on' : state === 'err' ? ' err' : state === 'busy' ? ' busy' : '');
+  d.title = title || (state === 'on' ? '구글 시트 연결됨' : '이 브라우저에만 저장');
+}
+function jsonp(action, extra){
+  return new Promise(function(resolve, reject){
+    const url = sheetUrl();
+    if (!url) { reject(new Error('시트 주소가 없습니다.')); return; }
+    const cb = '__cc_cb_' + Math.random().toString(36).slice(2);
+    const s = document.createElement('script');
+    let done = false;
+    const timer = setTimeout(function(){ finish(new Error('응답이 없습니다(12초).')); }, 12000);
+    function finish(err, data){
+      if (done) return; done = true;
+      clearTimeout(timer);
+      try { delete window[cb]; } catch(e) { window[cb] = undefined; }
+      if (s.parentNode) s.parentNode.removeChild(s);
+      if (err) reject(err); else resolve(data);
+    }
+    window[cb] = function(data){ finish(null, data); };
+    s.onerror = function(){ finish(new Error('주소를 열 수 없습니다.')); };
+    s.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'action=' + encodeURIComponent(action) + '&callback=' + cb + (extra || '');
+    document.body.appendChild(s);
+  });
+}
+function applyItemOverrides(list){
+  if (!Array.isArray(list) || !list.length) return;
+  list.forEach(function(o){
+    const it = ITEM_BY_KEY[o && o.key];
+    if (!it) return;
+    if (o.km != null && !isNaN(Number(o.km)) && Number(o.km) > 0) it.km = Number(o.km);
+    if (o.months != null && !isNaN(Number(o.months)) && Number(o.months) > 0) it.months = Number(o.months);
+  });
+}
+function pullSheet(force){
+  if (!sheetUrl()) return Promise.resolve({ applied:false, hasData:false });
+  setDot('busy', '불러오는 중…');
+  return jsonp('load').then(res => {
+    if (!res || res.ok !== true) throw new Error((res && res.error) || '불러오기 실패');
+    const incoming = res.data || res;
+    const hasData = incoming && Array.isArray(incoming.records) && incoming.records.length > 0;
+    let applied = false;
+    if (hasData && (force || !S.records.length)) {
+      const url = sheetUrl();
+      const next = normalize(incoming);
+      next.settings.sheetUrl = url;
+      next.mode = 'real';
+      applyItemOverrides(res.items);
+      S = next; persist(true); renderAll(); applied = true;
+    }
+    setDot('on', '구글 시트 연결됨');
+    return { applied: applied, hasData: hasData };
+  }).catch(err => { setDot('err', '연결 실패'); throw err; });
+}
+function pushSheet(now){
+  if (!sheetUrl()) return Promise.reject(new Error('시트 주소가 없습니다.'));
+  setDot('busy', '저장 중…');
+  const body = JSON.stringify({ action:'save', app:'carcare', version: APP_VERSION, data: S,
+    items: ITEMS.map(function(it){ return { key:it.key, name:it.name, km:it.km, months:it.months }; }) });
+  return fetch(sheetUrl(), { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body: body, redirect:'follow' })
+    .then(function(){ setDot('on', '구글 시트에 저장됨'); })
+    .catch(function(err){ setDot('err', '저장 실패 — 이 기기에만 저장됨'); throw err; });
+}
+function schedulePush(){
+  if (!sheetUrl() || S.mode === 'demo') return;
+  clearTimeout(pushTimer);
+  setDot('busy', '저장 중…');
+  pushTimer = setTimeout(function(){ pushSheet().catch(function(){}); }, 900);
+}
+
+/* ---------------------------------------------------------------- 화면 전환·이벤트 */
+function renderAll(){
+  renderHero(); renderHomeAlerts(); renderHomeRecent(); renderLife(); renderGuide(); renderLog();
+  $$('#pilltabs button, #tabbar button').forEach(b => b.classList.toggle('on', b.getAttribute('data-view') === VIEW));
+  ['home','life','guide','log'].forEach(v => { const el = $('#v-' + v); if (el) el.classList.toggle('hidden', v !== VIEW); });
+}
+function setView(v){
+  VIEW = v;
+  renderAll();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function toast(msg){
+  const t = $('#toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('on'), 2600);
+}
+function applyTheme(){
+  const pref = (S.settings.theme || 'auto');
+  const dark = pref === 'dark' || (pref === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+}
+function bindEvents(){
+  document.addEventListener('click', function(e){
+    const t = e.target;
+    const view = t.closest('[data-view]');
+    if (view) { setView(view.getAttribute('data-view')); return; }
+    const alert = t.closest('[data-alert]');
+    if (alert) {
+      const kind = alert.getAttribute('data-alert');
+      if (kind === 'inspection') inspectionSheet();
+      else itemSheet(alert.getAttribute('data-key'));
+      return;
+    }
+    const item = t.closest('[data-item]');
+    if (item) { itemSheet(item.getAttribute('data-item')); return; }
+    const rec = t.closest('[data-rec]');
+    if (rec) { recordSheet(rec.getAttribute('data-rec')); return; }
+    const add = t.closest('[data-add]');
+    if (add) { add.getAttribute('data-add') === 'fuel' ? fuelForm() : recordForm(null); return; }
+    const addp = t.closest('[data-addpart]');
+    if (addp) {
+      closeSheet();
+      setTimeout(function(){
+        const k = addp.getAttribute('data-addpart');
+        if (k === 'inspection') { recordForm(null, { cat:'검사/진단', shop:'종합검사소', title:'자동차 종합검사' }); }
+        else {
+          recordForm(null);
+          formParts.add(k);
+          $$('#partRow [data-part]').forEach(x => { if (x.getAttribute('data-part') === k) x.classList.add('on'); });
+        }
+      }, 180);
+      return;
+    }
+    const life = t.closest('[data-life]');
+    if (life) { LIFE_FILTER = life.getAttribute('data-life'); renderLife(); return; }
+    const seg = t.closest('[data-seg]');
+    if (seg) { LOG_SEG = seg.getAttribute('data-seg'); $('#logSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b === seg)); $('#logMaint').classList.toggle('hidden', LOG_SEG !== 'maint'); $('#logFuel').classList.toggle('hidden', LOG_SEG !== 'fuel'); return; }
+    const yr = t.closest('[data-year]');
+    if (yr) { LOG_FILTER.year = yr.getAttribute('data-year'); renderLog(); return; }
+    const ck = t.closest('[data-check]');
+    if (ck) { const i = 'c' + ck.getAttribute('data-check'); S.checks[i] = !S.checks[i]; persist(); renderGuide(); return; }
+    const gd = t.closest('[data-guide]');
+    if (gd) { guideSheet(Number(gd.getAttribute('data-guide'))); return; }
+    const cp = t.closest('[data-copy]');
+    if (cp) { const k = cp.getAttribute('data-copy'); const it = ITEM_BY_KEY[k] || ITEMS.find(i => i.alt && i.alt.key === k); if (it) copyText(it.say, '정비소에 보여 줄 문구를 복사했어요.'); return; }
+    if (t.closest('[data-close]')) { closeSheet(); return; }
+    if (t.closest('#odoBtn')) { mileageSheet(); return; }
+    if (t.closest('#btnAddTop')) { recordForm(null); return; }
+    if (t.closest('#btnSettings')) { settingsSheet(); return; }
+    if (t.closest('#planBtn')) { planSheet(); return; }
+    if (t.closest('#sheetClose') || t.closest('#scrim')) { closeSheet(); return; }
+    if (t.closest('#copyScript')) { copyText(buildScript(), '정비 요청 문구를 복사했어요.'); return; }
+  });
+  window.addEventListener('scroll', function(){ $('#topbar').classList.toggle('scrolled', window.scrollY > 4); }, { passive:true });
+  window.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeSheet(); });
+  $('#importFile').addEventListener('change', function(){
+    const f = this.files && this.files[0]; if (!f) return;
+    const rd = new FileReader();
+    rd.onload = function(){
+      try {
+        const obj = JSON.parse(rd.result);
+        if (!obj || !obj.vehicle) throw new Error('차계부 파일이 아닙니다.');
+        const url = sheetUrl();
+        S = normalize(obj); S.settings.sheetUrl = url; persist(); closeSheet(); renderAll(); toast('기록을 가져왔어요.');
+      } catch (err) { toast('가져오기 실패: ' + err.message); }
+    };
+    rd.readAsText(f); this.value = '';
+  });
+  if (window.matchMedia) {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    if (mq.addEventListener) mq.addEventListener('change', function(){ if (S.settings.theme === 'auto') applyTheme(); });
+  }
+}
+
+function planSheet(){
+  const items = alertEntries().filter(a => a.g);
+  const ins = inspectionInfo();
+  let low = 0, high = 0;
+  items.forEach(a => { low += a.g.spec.low || 0; high += a.g.spec.high || 0; });
+  openSheet('<h3>정비 계획</h3><p class="sheet-sub">한 번에 하면 공임을 아끼는 순서로 묶었습니다.</p>' +
+    '<div class="blocks">' +
+      (ins && ins.status !== 'good' ? '<div class="block"><h4>0. 종합검사</h4><p>만료 <b>' + fmtDate(ins.due) + '</b>. 검사 전에 아래 정비를 먼저 하면 재검사 위험을 줄일 수 있습니다. 5~6만원대.</p></div>' : '') +
+      items.map((a, i) => '<div class="block"><h4>' + (i + (ins && ins.status !== 'good' ? 1 : 0)) + '. ' + esc(a.g.spec.name) + '</h4><p>' + esc(a.g.spec.say) + '</p><p class="muted" style="margin-top:6px">' + esc(a.g.spec.costText) + ' · ' + remainText(a.g) + '</p></div>').join('') +
+      '<div class="block" style="background:var(--blue-soft)"><h4>합계</h4><p><b>' + wonShort(low) + ' ~ ' + wonShort(high) + '</b> (참고 범위, 검사비 제외)</p><p class="muted" style="margin-top:4px">타이밍벨트와 미션오일, 냉각수 누유를 같은 작업에서 처리하면 공임이 줄어듭니다. 순정/동급/재생 부품에 따라 금액 차이가 큽니다.</p></div>' +
+    '</div><div class="actions"><button class="btn ghost" data-close="1">닫기</button><button class="btn primary" id="planCopy">정비 요청 문구 복사</button></div>');
+  $('#planCopy').onclick = function(){ copyText(buildScript(), '정비 요청 문구를 복사했어요.'); };
+}
+
+function guideSheet(no){
+  const g = GUIDE.find(x => x.no === no); if (!g) return;
+  openSheet('<span class="gno">' + p2(g.no) + '</span><h3 style="margin-top:8px">' + esc(g.title) + '</h3>' +
+    '<p class="sheet-sub">' + g.short + '</p>' +
+    '<div class="blocks">' +
+      (realOnly() ? '<div class="block"><h4><span class="e">🚗</span>내 차 이력</h4><ul>' + g.history.map(h => '<li>' + esc(h.date) + ' · ' + esc(h.text) + '</li>').join('') + '</ul></div>' : '') +
+      '<div class="block"><h4><span class="e">⚠️</span>방치하면</h4><p>' + g.risk + '</p></div>' +
+      '<div class="block"><h4><span class="e">👂</span>이런 증상이면 의심</h4><ul>' + g.symptoms.map(s => '<li>' + esc(s) + '</li>').join('') + '</ul></div>' +
+      '<div class="block"><h4><span class="e">✅</span>이렇게 하세요</h4><ul>' + g.actions.map(s => '<li>' + esc(s) + '</li>').join('') + '</ul></div>' +
+      '<div class="block"><h4><span class="e">💰</span>예상 비용</h4><p>' + esc(g.cost) + '</p></div>' +
+      '<div class="block"><h4><span class="e">💬</span>정비소에서 이렇게 말하세요</h4><p style="background:var(--card);border:1px solid var(--line2);border-radius:10px;padding:11px 12px">“' + esc(g.say) + '”</p><div class="copy-row"><button class="btn small ghost" data-copyguide="' + g.no + '">문구 복사</button></div></div>' +
+    '</div><div class="actions"><button class="btn ghost" data-close="1">닫기</button><button class="btn primary" data-close="1">확인</button></div>');
+  const cb = $('[data-copyguide]');
+  if (cb) cb.onclick = function(){ copyText(g.say, '문구를 복사했어요.'); };
+}
+
+/* ---------------------------------------------------------------- 시작 */
+function init(){
+  let hashUrl = '';
+  if (location.hash && location.hash.indexOf('s=') >= 0) {
+    try { hashUrl = decodeURIComponent(escape(atob(location.hash.split('s=')[1]))); } catch (e) { try { hashUrl = atob(location.hash.split('s=')[1]); } catch (e2) {} }
+  }
+  const stored = readStore(STORE);
+  if (DEMO) S = normalize(stored || DEMO_PRESET);
+  else if (stored) {
+    S = normalize(stored);
+    if (EMBED_REAL_DATA && (!S.presetVersion || S.presetVersion < REAL_PRESET.presetVersion)) {
+      const ids = {};
+      S.records.forEach(function(r){ ids[r.id] = true; });
+      REAL_PRESET.records.forEach(function(r){
+        if (!ids[r.id]) S.records.push(JSON.parse(JSON.stringify(r)));
+        else if (r.id === 'r09' || r.id === 'r11' || r.id === 'r14') {
+          S.records = S.records.map(function(x){ return x.id === r.id ? JSON.parse(JSON.stringify(r)) : x; });
+        }
+      });
+      S.notes = JSON.parse(JSON.stringify(REAL_PRESET.notes));
+      S.presetVersion = REAL_PRESET.presetVersion;
+      S = normalize(S);
+      persist(true);
+    }
+  }
+  else S = normalize(EMBED_REAL_DATA ? REAL_PRESET : DEMO_PRESET);
+  if (!stored) persist(true);
+  if (hashUrl && !S.settings.sheetUrl) { S.settings.sheetUrl = hashUrl; persist(true); }
+  if (DEMO) $('#demoBanner').classList.remove('hidden');
+  applyTheme();
+  bindEvents();
+  renderAll();
+  setDot(sheetUrl() ? 'on' : '', sheetUrl() ? '구글 시트 연결됨' : '이 브라우저에만 저장');
+  if (sheetUrl()) pullSheet(false).catch(function(){});
+}
+let INITED = false;
+function boot(){ if (INITED) return; INITED = true; init(); }
+document.addEventListener('DOMContentLoaded', boot);
+if (document.readyState !== 'loading') boot();
+</script>
+</body>
+</html>
