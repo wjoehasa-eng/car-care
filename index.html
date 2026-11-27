@@ -26,6 +26,60 @@
 <meta name="theme-color" content="#F2F4F6">
 <meta name="description" content="크루즈 1.8 정비 기록과 소모품 수명, 고질병 예방정비를 한 화면에서. 14만 km 지금 무엇을 손봐야 하는지 바로 보여 줍니다.">
 <title>차계부 · 크루즈 1.8</title>
+<script>
+/* ── 첫 로딩 안내: 시트에서 불러오는 동안 경과 초를 보여 준다. 이 기기에 내 기록이 있으면 띄우지 않는다. */
+window.__LG_CFG = { keys: ['carcare.cruze.v1'], msg: '시트에서 불러오는 중…' };
+(function(){
+  var cfg = window.__LG_CFG;
+  function lsGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+  function sheetConnected(){
+    try {
+      if (/[?&]demo=1/.test(location.search)) return false;
+      if (/[?&#]s=/.test(location.hash + location.search)) return true;
+      for (var i = 0; i < localStorage.length; i++){ var v = lsGet(localStorage.key(i)) || ''; if (v.indexOf('script.google.com/macros/s/') >= 0) return true; }
+    } catch(e){}
+    return false;
+  }
+  function hasLocalData(){
+    if (!cfg.keys || !cfg.keys.length) return false;
+    for (var i = 0; i < cfg.keys.length; i++){ var v = lsGet(cfg.keys[i]); if (v && v !== 'null' && v !== 'undefined' && v.length > 2) return true; }
+    return false;
+  }
+  var el = null, t0 = 0, iv = null, msg = cfg.msg || '시트에서 불러오는 중…', failsafe = null;
+  function label(){ var s = Math.max(0, Math.round((Date.now() - t0) / 1000)); return msg + ' (' + s + '초)'; }
+  function show(m){
+    if (m) msg = m;
+    if (el){ var n = document.getElementById('lgTxt'); if (n) n.textContent = label(); return; }
+    t0 = Date.now();
+    el = document.createElement('div'); el.id = 'loadGate'; el.setAttribute('role','status'); el.setAttribute('aria-live','polite');
+    el.style.cssText = 'position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#F2F4F6;color:#191F28;font:600 15px/1.5 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;';
+    var st = document.createElement('style');
+    st.textContent = '@keyframes lgspin{to{transform:rotate(360deg)}}@media (prefers-color-scheme:dark){#loadGate{background:#17171C!important;color:#F2F4F6!important}}';
+    (document.head || document.documentElement).appendChild(st);
+    var sp = document.createElement('div');
+    sp.style.cssText = 'width:28px;height:28px;border-radius:50%;border:3px solid rgba(120,130,150,.25);border-top-color:#3182F6;animation:lgspin .8s linear infinite';
+    var tx = document.createElement('div'); tx.id = 'lgTxt'; tx.textContent = label();
+    el.appendChild(sp); el.appendChild(tx);
+    (document.body || document.documentElement).appendChild(el);
+    if (iv) clearInterval(iv);
+    iv = setInterval(function(){ var n = document.getElementById('lgTxt'); if (n) n.textContent = label(); }, 1000);
+    if (failsafe) clearTimeout(failsafe);
+    failsafe = setTimeout(done, 20000);
+  }
+  function done(){
+    window.__LG_DONE = true;
+    if (failsafe){ clearTimeout(failsafe); failsafe = null; }
+    if (iv){ clearInterval(iv); iv = null; }
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    el = null;
+  }
+  window.LoadGate = { show: show, done: done, active: function(){ return !!el; }, label: label };
+  if (sheetConnected() && !hasLocalData()){
+    if (document.body) show();
+    else document.addEventListener('DOMContentLoaded', function(){ if (!el && !window.__LG_DONE) show(); });
+  }
+})();
+</script>
 <style>
 /* ============================================================ 디자인 토큰 */
 :root{
@@ -519,7 +573,7 @@ h4{font-size:14px;font-weight:800;letter-spacing:-.02em}
    · 공개 배포용으로는 build-public.py 가 EMBED_REAL_DATA 를 false 로 바꾸고
      정비소 이름까지 지운 사본을 만듭니다.
 ============================================================================ */
-const APP_VERSION = '1.0.2';
+const APP_VERSION = '1.0.3';
 const EMBED_REAL_DATA = false;          // ← 공개 배포 시 false (또는 build-public.py 사용)
 const STORE_KEY = 'carcare.cruze.v1';
 
@@ -1610,6 +1664,10 @@ function settingsSheet(){
 /* ---------------------------------------------------------------- 구글 시트 동기화 */
 let pushTimer = null;
 let dotState = '';
+/* 데이터 증발 방지: 시트에서 한 번이라도 제대로 불러오기 전에는 자동 저장이 시트를 덮어쓰지 못하게 한다. */
+let PULL_OK = false;        // 원격 load가 1회 이상 성공했는가
+let REMOTE_NONEMPTY = false; // 마지막으로 불러온 시트에 기록이 있었는가
+function isEmptyState(st){ return !st || (!(st.records || []).length && !(st.fuel || []).length); }
 function sheetUrl(){ return ((S && S.settings && S.settings.sheetUrl) || '').trim(); }
 function setDot(state, title){
   dotState = state || '';
@@ -1663,12 +1721,24 @@ function pullSheet(force){
       applyItemOverrides(res.items);
       S = next; persist(true); renderAll(); applied = true;
     }
+    PULL_OK = true;
+    REMOTE_NONEMPTY = !!(incoming && ((incoming.records || []).length > 0 || (incoming.fuel || []).length > 0));
     setDot('on', '구글 시트 연결됨');
     return { applied: applied, hasData: hasData };
   }).catch(err => { setDot('err', '연결 실패'); throw err; });
 }
-function pushSheet(now){
+function pushSheet(manual){
   if (!sheetUrl()) return Promise.reject(new Error('시트 주소가 없습니다.'));
+  /* 가드 1: 불러오기 전 자동 저장 금지(새 기기의 데모/빈 데이터로 시트를 덮어쓰지 않도록) */
+  if (!PULL_OK && !manual){
+    setDot('err', '시트에서 먼저 불러온 뒤 저장합니다');
+    return Promise.reject(new Error('시트에서 먼저 불러와 주세요. (자동 저장을 멈췄습니다)'));
+  }
+  /* 가드 2: 시트에 기록이 있는데 이 기기 기록이 비어 있으면 확인 없이 덮어쓰지 않는다 */
+  if (REMOTE_NONEMPTY && isEmptyState(S)){
+    const go = manual && window.confirm('시트에 있는 기록을 빈 기록으로 덮어쓸까요?\n되돌릴 수 없습니다. 계속하려면 확인을 누르세요.');
+    if (!go){ setDot('err', '빈 기록 덮어쓰기를 막았습니다'); return Promise.reject(new Error('시트 기록을 지키기 위해 저장을 막았습니다.')); }
+  }
   setDot('busy', '저장 중…');
   const body = JSON.stringify({ action:'save', app:'carcare', version: APP_VERSION, data: S,
     items: ITEMS.map(function(it){ return { key:it.key, name:it.name, km:it.km, months:it.months }; }) });
@@ -1847,9 +1917,17 @@ function init(){
      이미 내 데이터(mode 'real' + 기록)가 있는 기기는 덮어쓰지 않는다. */
   const noMine = !stored || !S.records.length || S.mode !== 'real';
   const autoApply = !DEMO && noMine;
+  if (window.LoadGate){
+    if (!autoApply) LoadGate.done();                    // 이 기기에 내 기록이 있으면 바로 화면을 보여 준다
+    else if (sheetUrl()) LoadGate.show('시트에서 불러오는 중…');
+  }
   if (sheetUrl()) pullSheet(autoApply).then(function(r){
+    if (window.LoadGate) LoadGate.done();
     if (r && r.applied) toast('시트에서 기록을 불러왔어요.');
-  }).catch(function(){});
+  }).catch(function(e){
+    if (window.LoadGate) LoadGate.done();
+    if (autoApply) toast('시트에서 불러오지 못했어요: ' + (e && e.message ? e.message : '연결 확인'));
+  });
 }
 let INITED = false;
 function boot(){ if (INITED) return; INITED = true; init(); }
