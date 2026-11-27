@@ -9,7 +9,9 @@
   · 공개 배포용 빌드는 `python3 build-public.py` 로 만듭니다(실데이터·정비소 이름 제거, 데모만).
       또는 아래 EMBED_REAL_DATA 를 false 로 바꾸면 이 파일은 처음부터 데모 차량으로 시작합니다.
   · 주소 뒤에 ?demo=1 을 붙이면 가상 차량(데모)으로 열립니다. 기본은 내 차 데이터.
-  · 구글 시트 연결: 배포한 웹 앱(.../exec) 주소를 ⚙ 설정에 넣거나 주소창 끝에 #s=<base64 주소>.
+  · 구글 시트 연결: 배포한 웹 앱(.../exec) 주소를 ⚙ 설정에 넣거나 주소창 끝에 #s=<base64url 주소>.
+      설정의 [이 페이지 링크 복사]를 누르면 지금 연결된 주소가 들어간 링크가 복사되고,
+      다른 기기에서 그 링크를 열면 자동으로 같은 시트에 연결됩니다(연결 뒤 주소창 해시는 정리됨).
   · 이 앱은 자동차 정비 지식이 없는 사람이 "지금 뭘 해야 하는지" 1초 안에 판단하도록 만들었습니다.
     비용은 정비소·지역·부품 등급에 따라 달라지는 참고 범위입니다.
 -->
@@ -517,7 +519,7 @@ h4{font-size:14px;font-weight:800;letter-spacing:-.02em}
    · 공개 배포용으로는 build-public.py 가 EMBED_REAL_DATA 를 false 로 바꾸고
      정비소 이름까지 지운 사본을 만듭니다.
 ============================================================================ */
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.0.1';
 const EMBED_REAL_DATA = false;          // ← 공개 배포 시 false (또는 build-public.py 사용)
 const STORE_KEY = 'carcare.cruze.v1';
 
@@ -1313,6 +1315,42 @@ function fallbackCopy(text, done){
   document.body.removeChild(ta);
 }
 
+/* ---------------------------------------------------------------- 페이지 링크(#s=) */
+/* 설정의 [이 페이지 링크 복사]가 만드는 주소 형식: 현재 페이지 + #s=<base64url(시트 주소)>
+   base64url(-·_)로 만들고, 읽을 때는 표준 base64(+·/)·%인코딩도 함께 받아 준다. */
+function b64urlEncode(s){
+  try { return btoa(unescape(encodeURIComponent(String(s)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); } catch (e) { return ''; }
+}
+function b64urlDecode(s){
+  try {
+    let p = String(s).trim();
+    try { p = decodeURIComponent(p); } catch (e) {}
+    p = p.replace(/-/g,'+').replace(/_/g,'/');
+    while (p.length % 4) p += '=';
+    return decodeURIComponent(escape(atob(p)));
+  } catch (e) { return ''; }
+}
+function pageBase(){
+  return (location.protocol === 'http:' || location.protocol === 'https:') ? location.origin + location.pathname : '';
+}
+function pageLink(url){
+  const base = pageBase();
+  const enc = b64urlEncode(url);
+  return (base && enc) ? base + '#s=' + enc : '';
+}
+function readHashUrl(){
+  const h = location.hash || '';
+  const i = h.indexOf('s=');
+  if (i < 0) return '';
+  const v = h.slice(i + 2);
+  if (/^https?:\/\//i.test(v)) return v;
+  const d = b64urlDecode(v);
+  return /^https?:\/\//i.test(d) ? d : '';
+}
+function stripHash(){
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+}
+
 function itemSheet(key){
   const parent = ITEM_BY_KEY[key] || ITEMS.find(i => i.alt && i.alt.key === key);
   if (!parent) return;
@@ -1514,6 +1552,8 @@ function settingsSheet(){
       '<p>비공개 시트에 정비·주유 기록을 보관하면 폰과 PC가 같은 기록을 봅니다. Apps Script를 웹 앱으로 배포한 주소를 넣으세요.</p>' +
       '<div class="field" style="margin-top:8px"><input id="sUrl" placeholder="https://script.google.com/macros/s/.../exec" value="' + esc(url) + '"></div>' +
       '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn small primary" id="sConnect">연결</button><button class="btn small ghost" id="sPull">시트에서 불러오기</button><button class="btn small ghost" id="sPush">시트로 저장</button><button class="btn small ghost" id="sDisconnect">해제</button></div>' +
+      '<div class="hint" id="sLinkHint" style="margin-top:6px;font-size:12px;color:var(--sub)">[이 페이지 링크 복사]를 누르면 지금 연결된 시트 주소가 들어간 링크가 복사됩니다. 다른 기기(폰·PC)에서 열면 자동으로 연결됩니다.</div>' +
+      '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><button class="btn small ghost" id="sCopyLink">이 페이지 링크 복사</button></div>' +
       '<div class="hint" id="sStatus" style="margin-top:8px">' + (url ? '연결 주소가 저장되어 있습니다.' : '연결하지 않으면 이 브라우저에만 저장됩니다.') + '</div></div>' +
     '<div class="block"><h4>데이터</h4><div style="display:flex;gap:6px;flex-wrap:wrap">' +
       '<button class="btn small ghost" id="sExport">JSON 내보내기</button><button class="btn small ghost" id="sImport">JSON 가져오기</button>' +
@@ -1544,6 +1584,14 @@ function settingsSheet(){
   $('#sPull').onclick = function(){ pullSheet(true).then(r => { toast(r.applied ? '시트에서 불러왔어요.' : '시트에 새로 불러올 기록이 없어요.'); closeSheet(); renderAll(); }).catch(e => toast('불러오기 실패: ' + e.message)); };
   $('#sPush').onclick = function(){ pushSheet(true).then(() => toast('시트에 저장했어요.')).catch(e => toast('저장 실패: ' + e.message)); };
   $('#sDisconnect').onclick = function(){ S.settings.sheetUrl = ''; persist(true); setDot('', ''); $('#sUrl').value = ''; $('#sStatus').textContent = '연결을 해제했습니다. 이 기기에만 저장됩니다.'; };
+  $('#sCopyLink').onclick = function(){
+    const u = sheetUrl();
+    if (!u) { $('#sStatus').textContent = '연결된 시트 주소가 없습니다. 위에 .../exec 주소를 넣고 [연결]을 먼저 눌러 주세요.'; toast('시트 주소가 아직 연결되지 않았어요.'); return; }
+    const link = pageLink(u);
+    if (!link) { $('#sStatus').textContent = '링크는 http(s) 주소로 연 화면에서만 만들 수 있습니다.'; return; }
+    $('#sStatus').textContent = '링크를 복사했습니다. 다른 기기에서 열면 같은 시트로 연결됩니다.';
+    copyText(link, '이 페이지 링크를 복사했어요. 다른 기기에서 열면 같은 시트로 연결됩니다.');
+  };
   $('#sExport').onclick = function(){
     const blob = new Blob([JSON.stringify(S, null, 2)], { type:'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'car-care-' + isoToday() + '.json'; a.click();
@@ -1760,10 +1808,7 @@ function guideSheet(no){
 
 /* ---------------------------------------------------------------- 시작 */
 function init(){
-  let hashUrl = '';
-  if (location.hash && location.hash.indexOf('s=') >= 0) {
-    try { hashUrl = decodeURIComponent(escape(atob(location.hash.split('s=')[1]))); } catch (e) { try { hashUrl = atob(location.hash.split('s=')[1]); } catch (e2) {} }
-  }
+  const hashUrl = readHashUrl();
   const stored = readStore(STORE);
   if (DEMO) S = normalize(stored || DEMO_PRESET);
   else if (stored) {
@@ -1791,6 +1836,7 @@ function init(){
   else S = normalize(EMBED_REAL_DATA ? REAL_PRESET : DEMO_PRESET);
   if (!stored) persist(true);
   if (hashUrl && !S.settings.sheetUrl) { S.settings.sheetUrl = hashUrl; persist(true); }
+  if ((location.hash || '').indexOf('s=') >= 0) stripHash();   // 링크로 연 뒤 주소창은 깔끔하게(주소는 위에서 이미 저장됨)
   if (DEMO) $('#demoBanner').classList.remove('hidden');
   applyTheme();
   bindEvents();
