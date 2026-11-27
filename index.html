@@ -1734,6 +1734,11 @@ function pushSheet(manual){
     setDot('err', '시트에서 먼저 불러온 뒤 저장합니다');
     return Promise.reject(new Error('시트에서 먼저 불러와 주세요. (자동 저장을 멈췄습니다)'));
   }
+  /* 가드 1-2: 시트 내용을 아직 확인하지 못했는데 직접 저장하면 한 번 물어본다 */
+  if (!PULL_OK && manual && !window.confirm('시트에 무엇이 들어 있는지 아직 확인하지 못했습니다.\n이 기기 기록으로 시트를 바꿀까요?')){
+    setDot('err', '시트 덮어쓰기를 멈췄습니다');
+    return Promise.reject(new Error('시트 덮어쓰기를 멈췄습니다.'));
+  }
   /* 가드 2: 시트에 기록이 있는데 이 기기 기록이 비어 있으면 확인 없이 덮어쓰지 않는다.
      (시트 내용을 아직 확인하지 못한 경우에도 빈 기록은 밀어 넣지 않는다) */
   if (isEmptyState(S) && (REMOTE_NONEMPTY || !PULL_OK)){
